@@ -28,10 +28,9 @@ import encodings
 from sys import getdefaultencoding
 from e32 import Ao_lock, drive_list, ao_yield, ao_sleep
 from key_codes import EKeyLeftArrow, EKeyRightArrow, EKeyBackspace, EKey1, EKey2, EKeyEdit, EKeyYes
-import parse
 
 VERSION=1.44
-CONFFILE='C:\\system\\Data\\texteditorsettings.conf'
+CONFFILE='C:\\SYSTEM\\Data\\EasyEdit.conf'
 DEFAULTFONT='LatinPlain12'
 DEFAULTENCODING=getdefaultencoding()
 
@@ -45,12 +44,12 @@ class editor:
   self.last_find=u''
   self.settings=Settings()
   self.settings.load(CONFFILE)
-  self.file_ops=File_ops(self.settings.config.contents['last_dir'][0])
+  self.file_ops=File_ops(self.settings.config['last_dir'][0])
 
  def run(self):
   """start application"""
   appuifw.app.title=u'EasyEdit'
-  appuifw.app.screen=self.settings.config.contents['screen'][0]
+  appuifw.app.screen=self.settings.config['screen'][0]
 
   # create blank page
   self.text=appuifw.Text()
@@ -97,7 +96,7 @@ class editor:
 
  def _count(self):
   while self.lock:
-   if self._focus and self.settings.config.contents['linenos'][0] == 'yes':
+   if self._focus and self.settings.config['linenos'][0] == 'yes':
     n = self.text.get()[0:self.text.get_pos()].replace(u'\u2029',u'\n').count(u'\n')
     statusbar.refresh(prefix='[' + str(n+1) + ']')
    ao_sleep(0.1)
@@ -106,12 +105,12 @@ class editor:
   "update the screen font"
   statusbar.busy()
   cur_pos=self.text.get_pos()
-  self.text.font=unicode(self.settings.config.contents['font'][0])
+  self.text.font=unicode(self.settings.config['font'][0])
   self.text.color=\
    (\
-    self.settings.config.contents['font_colour'][0],\
-    self.settings.config.contents['font_colour'][1],\
-    self.settings.config.contents['font_colour'][2]\
+    self.settings.config['font_colour'][0],\
+    self.settings.config['font_colour'][1],\
+    self.settings.config['font_colour'][2]\
    )
   self.text.set(self.text.get())
   self.text.set_pos(cur_pos)
@@ -161,14 +160,14 @@ class editor:
     try:
      f=open(path,'r')
      self.text.style=False
-     self.text.set(unicode(f.read().decode(self.settings.config.contents['encoding'][0])))
+     self.text.set(unicode(f.read().decode(self.settings.config['encoding'][0])))
      self.text.set_pos(0)
      f.close()
      self.path=path
      statusbar.remove()
      statusbar.add(os.path.basename(self.path))
      if save_path:
-      self.settings.config.contents['last_dir'][0]=os.path.dirname(self.path)
+      self.settings.config['last_dir'][0]=os.path.dirname(self.path)
      self._addrecent(self.path)
     except:
      appuifw.note(u'Error opening file', 'error')
@@ -177,7 +176,7 @@ class editor:
  def f_recent(self):
   """open a recently opeened document"""
   recent=[]
-  for path in self.settings.config.contents['history']:
+  for path in self.settings.config['history']:
    recent.append((unicode(os.path.basename(path)),unicode(os.path.dirname(path))))
   try:
    self.recent_list=appuifw.Listbox(recent, self._f_recent_select)
@@ -202,18 +201,18 @@ class editor:
 
  def _addrecent(self, path):
   """add a document to the list of recent documents"""
-  if path in self.settings.config.contents['history']:
-   self.settings.config.contents['history'].remove(path)
-  self.settings.config.contents['history'].insert(0, path)
-  if len(self.settings.config.contents['history']) > self.settings.config.contents['history_max'][0]:
-   temp=self.settings.config.contents['history'].pop()
+  if path in self.settings.config['history']:
+   self.settings.config['history'].remove(path)
+  self.settings.config['history'].insert(0, path)
+  if len(self.settings.config['history']) > self.settings.config['history_max'][0]:
+   temp=self.settings.config['history'].pop()
   self.settings._saveconfig()
 
  def _f_recent_select(self, path=None):
   """select a document from the recent documents"""
   statusbar.busy()
   self._f_recent_exit()
-  self.f_open(self.settings.config.contents['history'][self.recent_list.current()], False)
+  self.f_open(self.settings.config['history'][self.recent_list.current()], False)
   statusbar.signal()
 
  def _f_recent_exit(self):
@@ -229,10 +228,10 @@ class editor:
    statusbar.busy()
    try:
     text = self.text.get().replace(u'\u2029', u'\n').replace(u'\r\n', u'\n')
-    if self.settings.config.contents['newline'][0] == 'windows':
-     text = text.replace(u'\n', u'\r\n').encode(self.settings.config.contents['encoding'][0])
+    if self.settings.config['newline'][0] == 'windows':
+     text = text.replace(u'\n', u'\r\n').encode(self.settings.config['encoding'][0])
     else:
-     text = text.encode(self.settings.config.contents['encoding'][0])
+     text = text.encode(self.settings.config['encoding'][0])
     f=open(str(self.path),'w')
     f.write(text)
     f.close()
@@ -261,7 +260,7 @@ class editor:
      f=open(str(self.path), 'w')
      f.close()
      self.f_save()
-     self.settings.config.contents['last_dir'][0]=os.path.dirname(self.path)
+     self.settings.config['last_dir'][0]=os.path.dirname(self.path)
      self.settings._saveconfig()
      statusbar.remove()
      statusbar.add(os.path.basename(path))
@@ -280,7 +279,7 @@ class editor:
    statusbar.busy()
    try:
     text = self.text.get()
-    if self.settings.config.contents['casesensitive'][0] == 'no':
+    if self.settings.config['casesensitive'][0] == 'no':
      text = text.lower()
      string = string.lower()
     if beginning:
@@ -554,13 +553,15 @@ class Settings(object):
  def load(self, conf):
   """load all settings"""
   self.conffile=conf
-  self.config=parse.Parser(self.conffile)
   if os.path.exists(self.conffile):
-   temp=self.config.parse()
+   f = open(self.conffile, 'r')
+   c = f.read()
+   f.close()
+   self.config=eval(c)
   else:
    self._newconfig()
   try:
-   if self.config.contents['version'][0] != VERSION:
+   if self.config['version'][0] != VERSION:
     self._newconfig()
   except:
    self._newconfig()
@@ -568,8 +569,8 @@ class Settings(object):
   self.listbox=appuifw.Listbox(self.items, self._modify)
 
  def _newconfig(self):
-  appuifw.note(u'New version detected, erasing config.', 'info')
-  self.config.contents=\
+  appuifw.note(u'New version detected, creating new config.', 'info')
+  self.config=\
    {\
     'version':[VERSION],\
     'screen':[appuifw.app.screen],\
@@ -603,7 +604,7 @@ class Settings(object):
   statusbar.add('EasyEdit settings')
   self.callback = callback
   self._update()
-  self.oldconfig=self.config.contents
+  self.oldconfig=self.config
   appuifw.app.body = self.listbox
   appuifw.app.menu = self.menu
   appuifw.app.exit_key_handler = self._close
@@ -616,13 +617,13 @@ class Settings(object):
   """refresh stored list of settings"""
   self.items=\
     [\
-     (u'File encoding', unicode(self.config.contents['encoding'][0])),\
-     (u'New-lines', unicode(self.config.contents['newline'][0])),
-     (u'Case-sensitive find', unicode(self.config.contents['casesensitive'][0])),
-     (u'Screen font', unicode(self.config.contents['font'][0])),\
-     (u'Display line number', unicode(self.config.contents['linenos'][0])),\
-     (u'Screen size', unicode(self.config.contents['screen'][0])),\
-     (u'Max history size', unicode(self.config.contents['history_max'][0])),
+     (u'File encoding', unicode(self.config['encoding'][0])),\
+     (u'New-lines', unicode(self.config['newline'][0])),
+     (u'Case-sensitive find', unicode(self.config['casesensitive'][0])),
+     (u'Screen font', unicode(self.config['font'][0])),\
+     (u'Display line number', unicode(self.config['linenos'][0])),\
+     (u'Screen size', unicode(self.config['screen'][0])),\
+     (u'Max history size', unicode(self.config['history_max'][0])),
     ]
 
  def _update(self):
@@ -660,75 +661,77 @@ class Settings(object):
  def _saveconfig(self):
   """save the configuration file"""
   try:
-   self.config.write(comment='EasyEdit settings; do not edit!')
+   f = open(self.conffile, 'w')
+   f.write(repr(self.config))
+   f.close()
   except:
    appuifw.note(u'Error saving configuration', 'error')
 
  def history_max(self):
   """set the maximum history size"""
-  newsize = appuifw.query(u'Max history size:', 'number', self.config.contents['history_max'][0])
+  newsize = appuifw.query(u'Max history size:', 'number', self.config['history_max'][0])
   if newsize != None:
-   self.config.contents['history_max'][0] = str(newsize)
+   self.config['history_max'][0] = str(newsize)
 
  def casesensitive(self):
   selection = appuifw.popup_menu([u'Yes', u'No'], u'Case-sensitive find:')
   if selection == 0:
-   self.config.contents['casesensitive'][0] = 'yes'
+   self.config['casesensitive'][0] = 'yes'
   if selection == 1:
-   self.config.contents['casesensitive'][0] = 'no'
+   self.config['casesensitive'][0] = 'no'
 
  def linenos(self):
   selection = appuifw.popup_menu([u'Yes', u'No'], u'Line numbers:')
   if selection == 0:
-   self.config.contents['linenos'][0] = 'yes'
+   self.config['linenos'][0] = 'yes'
   if selection == 1:
-   self.config.contents['linenos'][0] = 'no'
+   self.config['linenos'][0] = 'no'
    statusbar.refresh()
 
  def newline(self):
   newstyle = appuifw.popup_menu([u'Unix style', u'Windows style'], u'New lines:')
   if newstyle != None:
    if newstyle == 0:
-    self.config.contents['newline'][0] = 'unix'
+    self.config['newline'][0] = 'unix'
    if newstyle == 1:
-    self.config.contents['newline'][0] = 'windows'
+    self.config['newline'][0] = 'windows'
 
  def screen(self):
   """change the screen size"""
-  temp=self.config.contents['screen'][0]
+  temp=self.config['screen'][0]
   statusbar.add('Select screen size...')
-  self.config.contents['screen'][0]=appuifw.popup_menu([\
+  self.config['screen'][0]=appuifw.popup_menu([\
    u'Normal',\
    u'Large',\
    u'Fullscreen',\
   ], u'Screen size:')
   statusbar.remove()
-  if (self.config.contents['screen'][0] == 0):
+  if (self.config['screen'][0] == 0):
    appuifw.app.screen='normal'
-   self.config.contents['screen'][0] = 'normal'
-  elif (self.config.contents['screen'][0] == 1):
+   self.config['screen'][0] = 'normal'
+  elif (self.config['screen'][0] == 1):
    appuifw.app.screen='large'
-   self.config.contents['screen'][0] = 'large'
-  elif (self.config.contents['screen'][0] == 2):
+   self.config['screen'][0] = 'large'
+  elif (self.config['screen'][0] == 2):
    appuifw.app.screen='full'
-   self.config.contents['screen'][0] = 'full'
+   self.config['screen'][0] = 'full'
   else:
-   self.config.contents['screen'][0]=temp
+   self.config['screen'][0]=temp
 
  def font(self):
   """change the display font"""
-  temp=self.config.contents['font'][0]
+  temp=self.config['font'][0]
   fonts=appuifw.available_fonts()
   fonts.sort()
   statusbar.add('Select font...')
-  self.config.contents['font'][0]=appuifw.selection_list(choices=fonts,search_field=1)
+  self.config['font'][0]=appuifw.selection_list(choices=fonts,search_field=1)
   statusbar.remove()
-  if self.config.contents['font'][0] != None:
-   self.config.contents['font'][0] = str(fonts[self.config.contents['font'][0]])
-  if (self.config.contents['font'][0] != None):
+  if self.config['font'][0] != None:
+   self.config['font'][0] = str(fonts[self.config['font'][0]])
+  if (self.config['font'][0] != None):
    self.callback()
   else:
-   self.config.contents['font'][0]=temp
+   self.config['font'][0]=temp
 
  def encoding(self):
   """set the file encoding"""
@@ -743,7 +746,7 @@ class Settings(object):
   statusbar.remove()
   if selection != None:
    statusbar.busy()
-   self.config.contents['encoding'][0]=str(codecs[selection])
+   self.config['encoding'][0]=str(codecs[selection])
    statusbar.signal()
 
 
