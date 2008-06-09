@@ -29,7 +29,7 @@ from sys import getdefaultencoding
 from e32 import Ao_lock, drive_list, ao_yield, ao_sleep
 from key_codes import EKeyLeftArrow, EKeyRightArrow, EKeyBackspace, EKey1, EKey2, EKeyEdit, EKeyYes
 
-VERSION=1.44
+VERSION=(1, 45, 0)
 CONFFILE='C:\\SYSTEM\\Data\\EasyEdit.conf'
 DEFAULTFONT='LatinPlain12'
 DEFAULTENCODING=getdefaultencoding()
@@ -49,7 +49,7 @@ class editor:
  def run(self):
   """start application"""
   appuifw.app.title=u'EasyEdit'
-  appuifw.app.screen=self.settings.config['screen'][0]
+  appuifw.app.screen=self.settings.config['screen']
 
   # create blank page
   self.text=appuifw.Text()
@@ -204,7 +204,7 @@ class editor:
   if path in self.settings.config['history']:
    self.settings.config['history'].remove(path)
   self.settings.config['history'].insert(0, path)
-  if len(self.settings.config['history']) > self.settings.config['history_max'][0]:
+  if len(self.settings.config['history']) > self.settings.config['history_max']:
    temp=self.settings.config['history'].pop()
   self.settings._saveconfig()
 
@@ -561,7 +561,7 @@ class Settings(object):
   else:
    self._newconfig()
   try:
-   if self.config['version'][0] != VERSION:
+   if not(self.config['version'][0] == VERSION[0] and self.config['version'][1] == VERSION[1]):
     self._newconfig()
   except:
    self._newconfig()
@@ -572,13 +572,13 @@ class Settings(object):
   appuifw.note(u'New version detected, creating new config.', 'info')
   self.config=\
    {\
-    'version':[VERSION],\
-    'screen':[appuifw.app.screen],\
+    'version':VERSION,\
+    'screen':appuifw.app.screen,\
     'encoding':[DEFAULTENCODING],\
-    'font':[DEFAULTFONT],\
-    'font_colour':[0,0,0],\
+    'font':[appuifw.app.body.font[0]],\
+    'font_colour':(0,0,0),\
     'history':[],\
-    'history_max':[5],\
+    'history_max':5,\
     'last_dir':['\\'],\
     'newline':['unix'],\
     'linenos':['yes'],\
@@ -622,8 +622,8 @@ class Settings(object):
      (u'Case-sensitive find', unicode(self.config['casesensitive'][0])),
      (u'Screen font', unicode(self.config['font'][0])),\
      (u'Display line number', unicode(self.config['linenos'][0])),\
-     (u'Screen size', unicode(self.config['screen'][0])),\
-     (u'Max history size', unicode(self.config['history_max'][0])),
+     (u'Screen size', unicode(self.config['screen'])),\
+     (u'Max history size', unicode(self.config['history_max'])),
     ]
 
  def _update(self):
@@ -669,9 +669,9 @@ class Settings(object):
 
  def history_max(self):
   """set the maximum history size"""
-  newsize = appuifw.query(u'Max history size:', 'number', self.config['history_max'][0])
+  newsize = appuifw.query(u'Max history size:', 'number', self.config['history_max'])
   if newsize != None:
-   self.config['history_max'][0] = str(newsize)
+   self.config['history_max'] = str(newsize)
 
  def casesensitive(self):
   selection = appuifw.popup_menu([u'Yes', u'No'], u'Case-sensitive find:')
@@ -698,25 +698,25 @@ class Settings(object):
 
  def screen(self):
   """change the screen size"""
-  temp=self.config['screen'][0]
+  current_screen=self.config['screen']
   statusbar.add('Select screen size...')
-  self.config['screen'][0]=appuifw.popup_menu([\
+  self.config['screen']=appuifw.popup_menu([\
    u'Normal',\
    u'Large',\
    u'Fullscreen',\
   ], u'Screen size:')
   statusbar.remove()
-  if (self.config['screen'][0] == 0):
+  if (self.config['screen'] == 0):
    appuifw.app.screen='normal'
-   self.config['screen'][0] = 'normal'
-  elif (self.config['screen'][0] == 1):
+   self.config['screen'] = 'normal'
+  elif (self.config['screen'] == 1):
    appuifw.app.screen='large'
-   self.config['screen'][0] = 'large'
-  elif (self.config['screen'][0] == 2):
+   self.config['screen'] = 'large'
+  elif (self.config['screen'] == 2):
    appuifw.app.screen='full'
-   self.config['screen'][0] = 'full'
+   self.config['screen'] = 'full'
   else:
-   self.config['screen'][0]=temp
+   self.config['screen']=current_screen
 
  def font(self):
   """change the display font"""
