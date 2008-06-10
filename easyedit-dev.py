@@ -48,10 +48,37 @@ from os.path import exists
 from sys import getdefaultencoding
 from encodings import aliases
 
+class Titlebar:
+	"""A class to manage the S60 Titlebar"""
+	def __init__(self, default=app.title):
+		app.title = unicode(default)
+		self.running = 0
+			
+	def run(self, id, message, function, *args):
+		"""Execute a function while displaying a message on the Titlebar"""
+		separator = u" > "
+		oldtitle = app.title
+		app.title = oldtitle + separator + unicode(message)
+		ao_yield()
+		retval = None
+		try:
+			retval = function(*args)
+		except:
+			if DEBUG:
+				print "Titlebar: Error in " + function.__name__
+		app.title = oldtitle
+		ao_yield()
+		return retval
+
+
 class Settings:
 	"""Settings manager"""
 	
-	def __init__(self, path):
+	def __init__(self, path, titlebar=None):
+		if titlebar:
+			self.titlebar = titlebar
+		else:
+			self.titlebar = Titlebar().run
 		self.config = {}
 		self.path = path
 		self.exit = Ao_lock()
@@ -105,7 +132,7 @@ class Settings:
 		if self.settings_list:
 			slist = [
 					(u'File encoding', unicode(self[CONF_ENCODING])),
-					(u'New-lines', unicode(self[CONF_NEW_LINES])),
+					(u'New lines', unicode(self[CONF_NEW_LINES])),
 					(u'Case-sensitive find', unicode(self[CONF_CASE_SENSITIVE])),
 					(u'Font', unicode(self[CONF_FONT])),
 					(u'Font size', unicode(self[CONF_FONT_SIZE])),
@@ -123,32 +150,38 @@ class Settings:
 
 	def show(self, callback=None):
 		"""Create and show a settings editor"""
-		self.settings_list = Listbox([(u'dummy',u'item')])
-		self.update()
-		# save previous application state
-		previous_body = app.body
-		previous_menu = app.menu
-		previous_exit_key_handler = app.exit_key_handler
-		# show the settings editor
-		app.body = self.settings_list
-		self.settings_list.bind(EKeyRightArrow, self._modify)
-		self.settings_list.bind(EKeyEdit, self._modify)
-		self.settings_list.bind(EKeySelect, self._modify)
-		self.settings_list.bind(EKeyYes, self.exit.signal)
-		app.menu =[
-			(u'Modify', self._modify),
-			(u'Close', self.exit.signal),
-		]
-		app.exit_key_handler = self.exit.signal
-		# wait for a signal to exit the settings editor
-		self.exit.wait()
-		# exit the editor
-		app.body = previous_body
-		app.menu = previous_menu
-		app.exit_key_handler = previous_exit_key_handler
-		del(self.settings_list)	# destroy list UI to save memory
+		def show():
+			self.settings_list = Listbox([(u'dummy',u'item')])
+			self.update()
+			# save previous application state
+			previous_body = app.body
+			previous_menu = app.menu
+			previous_exit_key_handler = app.exit_key_handler
+			# show the settings editor
+			app.body = self.settings_list
+			self.settings_list.bind(EKeyRightArrow, self._modify)
+			self.settings_list.bind(EKeyEdit, self._modify)
+			self.settings_list.bind(EKeySelect, self._modify)
+			self.settings_list.bind(EKeyYes, self.exit.signal)
+			app.menu =[
+				(u'Modify', self._modify),
+				(u'Close', self.exit.signal),
+			]
+			app.exit_key_handler = self.exit.signal
+			# wait for a signal to exit the settings editor
+			self.exit.wait()
+			# exit the editor
+			app.body = previous_body
+			app.menu = previous_menu
+			app.exit_key_handler = previous_exit_key_handler
+			del(self.settings_list)	# destroy list UI to save memory
+		if self.titlebar:
+			return self.titlebar('settings', u'Settings', show)
+		else:
+			return show()
 		if callback:
 			callback()
+
 		
 	def _modify(self):
 		"""edit a setting"""
@@ -176,32 +209,32 @@ class Settings:
 
 	def history_max(self):
 		"""set the maximum history size"""
-		newsize = query(u'Max history size:', 'number', self[CONF_HISTORY_SIZE])
+		newsize = query(u'Max history size', 'number', self[CONF_HISTORY_SIZE])
 		if newsize != None:
 			self[CONF_HISTORY_SIZE] = newsize
 
 	def casesensitive(self):
 		options = [u'Yes', u'No']
-		selection = popup_menu(options, u'Case-sensitive find:')
+		selection = popup_menu(options, u'Case-sensitive find')
 		if selection != None:
 			self[CONF_CASE_SENSITIVE] = str(options[selection]).lower()
 
 	def linenos(self):
 		options = [u'Yes', u'No']
-		selection = popup_menu(options, u'Display line number:')
+		selection = popup_menu(options, u'Display line number')
 		if selection != None:
 			self[CONF_LINE_NUMBERS] = str(options[selection]).lower()
 
 	def newlines(self):
 		options = [u'Unix', u'Windows']
-		newstyle = popup_menu(options, u'New lines:')
+		newstyle = popup_menu(options, u'New lines')
 		if newstyle != None:
 			self[CONF_NEW_LINES] = str(options[newstyle]).lower()
 
 	def screen(self):
 		"""change the screen size"""
 		options = [u'Normal', u'Large', u'Full']
-		new_screen = popup_menu(options, u'Screen size:')
+		new_screen = popup_menu(options, u'Screen size')
 		# save the changes
 		if new_screen != None:
 			self[CONF_SCREEN] = str(options[new_screen]).lower()
@@ -209,13 +242,15 @@ class Settings:
 
 	def font(self):
 		"""change the display font"""
-		# get a list of fonts
-		fonts = available_fonts()
-		fonts.sort()
-		# display a searchable list
-		selection = selection_list(choices=fonts,search_field=1)
-		if selection != None:
-			self[CONF_FONT] = str(fonts[selection])
+		def font():
+			# get a list of fonts
+			fonts = available_fonts()
+			fonts.sort()
+			# display a searchable list
+			selection = selection_list(choices=fonts,search_field=1)
+			if selection != None:
+				self[CONF_FONT] = fonts[selection]
+		return self.titlebar('font', u'Font', font)
 
 	def font_size(self):
 		"""set the font size"""
@@ -225,20 +260,22 @@ class Settings:
 
 	def encoding(self):
 		"""set the file encoding"""
-		# get a list of codecs to display
-		codecs = [unicode(enc) for enc in aliases.aliases]
-		codecs.sort()
-		# display a searchable list
-		selection = selection_list(choices=codecs, search_field=1)
-		if selection != None:
-			self[CONF_ENCODING] = str(codecs[selection]).lower()
+		def encoding():
+			# get a list of codecs to display
+			codecs = [unicode(enc) for enc in aliases.aliases]
+			codecs.sort()
+			# display a searchable list
+			selection = selection_list(choices=codecs, search_field=1)
+			if selection != None:
+				self[CONF_ENCODING] = str(codecs[selection]).lower()
+		return self.titlebar('font', u'Encoding', encoding)
 
 	def orientation(self):
 		"""change the screen orientation"""
 		# create list of options
 		options = [u'Automatic', u'Portrait', u'Landscape']
 		# display a searchable list
-		selection = selection_list(choices=options, search_field=1)
+		selection = popup_menu(options, u'Screen orientation')
 		if selection != None:
 			self[CONF_ORIENTATION] = str(options[selection]).lower()
 			app.orientation = self[CONF_ORIENTATION]
@@ -251,8 +288,9 @@ class Editor:
 	"""
 	
 	def __init__(self):
-		self.config = Settings(CONFFILE)
-		self.hasFocus = True
+		self.titlebar = None
+		self.config = None
+		self.hasFocus = False
 
 	def run(self):
 		"""Start EasyEdit"""
@@ -264,6 +302,10 @@ class Editor:
 			self.hasFocus = f
 			if f:
 				focusLock.signal()
+		# read settings
+		self.titlebar = Titlebar(u'EasyEdit').run
+		self.config = Settings(CONFFILE, self.titlebar)
+		self.hasFocus = True
 		# save current state
 		old_title = app.title
 		old_screen = app.screen
@@ -271,7 +313,6 @@ class Editor:
 		old_body = app.body
 		old_menu = app.menu
 		old_focus_handler = app.focus
-		app.title = u'EasyEdit' # should be handled by "titlebar"
 		app.screen = self.config[CONF_SCREEN]
 		# create editor environment
 		self.text = Text()
@@ -303,10 +344,10 @@ class Editor:
 		"""self.f_new()"""
 		# display editor
 		app.body = self.text
+		ao_yield()
 		app.exit_key_handler = exitHandler
 		app.focus = focusHandler
-		"""app.focus = self._changefocus
-		# set the 'dial' key to save document
+		"""# set the 'dial' key to save document
 		self.text.bind(EKeyYes, self.f_save)"""
 		#
 		self.running = True
@@ -320,8 +361,7 @@ class Editor:
 				ao_sleep(0.2)	# refresh rate of line numbers (seconds)
 			else:
 				focusLock.wait()
-		# save file?
-		# ...
+		self.save_query()
 		# restore original state
 		app.title = old_title
 		app.screen = old_screen
@@ -329,17 +369,35 @@ class Editor:
 		app.body = old_body
 		app.menu = old_menu
 		app.focus = old_focus_handler
-
+		
+	def encode(self, text):
+		"""encode text accoridng to settings"""
+		return text.replace(u'\n', u'\r\n').encode(self.settings.config[CONT_ENCODING])
+	
+	def decode(self, text):
+		"""decode text according to settings"""
+		return unicode(text.decode(self.settings.config[CONF_ENCODING]))
 		
 	def save_query(self):
+		saved = None
+		save_required = True
+		current_text = self.text.get()
 		if self.path != None and len(self.path > 0) and exists(self.path):
 			# read file and compare to current
 			f = open(self.path, 'r')
-			text = f.read().decode(self.config[CONF_ENCODING])
+			saved_text = f.read().decode(self.config[CONF_ENCODING])
 			f.close()
-			# text if same as current text
-			
-			if str(self.text.get()) == 
+			if saved_text == encode(current_text):
+				save_required = False
+		if (self.path == None or len(self.path) == 0) and len(current_text) == 0:
+			save_required = False
+		if DEBUG:
+			print("Save required")
+		if save_required:
+			saved = query(u'Save file?', 'query')
+			if saved == True:
+				pass#f_save(self)
+		return saved
 		
 
 # run the editor!

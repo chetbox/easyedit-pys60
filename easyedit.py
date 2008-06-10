@@ -31,7 +31,6 @@ from key_codes import EKeyLeftArrow, EKeyRightArrow, EKeyBackspace, EKey1, EKey2
 
 VERSION=(1, 45, 0)
 CONFFILE='C:\\SYSTEM\\Data\\EasyEdit.conf'
-DEFAULTFONT='LatinPlain12'
 DEFAULTENCODING=getdefaultencoding()
 
 
@@ -575,7 +574,7 @@ class Settings(object):
     'version':VERSION,\
     'screen':appuifw.app.screen,\
     'encoding':[DEFAULTENCODING],\
-    'font':[appuifw.app.body.font[0]],\
+    'font':[Text().font[0]],\
     'font_colour':(0,0,0),\
     'history':[],\
     'history_max':5,\
