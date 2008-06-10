@@ -574,7 +574,7 @@ class Settings(object):
     'version':VERSION,\
     'screen':appuifw.app.screen,\
     'encoding':[DEFAULTENCODING],\
-    'font':[Text().font[0]],\
+    'font':[appuifw.Text().font[0]],\
     'font_colour':(0,0,0),\
     'history':[],\
     'history_max':5,\
