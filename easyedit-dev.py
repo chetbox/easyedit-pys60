@@ -50,6 +50,7 @@ from graphics import FONT_ANTIALIAS
 from dir_iter import *
 
 
+
 class Titlebar (object):
 	"""A class to manage the S60 Titlebar"""		
 	
@@ -119,9 +120,7 @@ class Settings (dict):
 		(CONF_SCREEN,			'Screen Size',			'normal',				1,					['large', 'normal', 'full']					),
 		(CONF_ORIENTATION,		'Screen orientation',	'automatic',			3,					['automatic', 'portrait', 'landscape']		),
 	]
-	keep_config = False
-	titlebar = None
-	
+
 	def __init__(self, path, titlebar=None):
 		dict.__init__(self)
 		if titlebar != None:
@@ -132,6 +131,7 @@ class Settings (dict):
 		self.exit = Ao_lock()
 		# create a new configuration if one does not exist
 		existing_conf = isfile(self.path)
+		self.keep_config = False
 		if existing_conf:
 			try:
 				# read the config file from disk
@@ -155,7 +155,7 @@ class Settings (dict):
 				print("Creating new config...")
 			textbox_font = Text().font	# not very nice, but it does what is required
 			# set current settings to these defaults
-			self.update(dict([(id, default) for (id,description,default,s60,options) in self.SETTINGS]))
+			self.update(dict([(id, default) for (id,description,default,s60,options) in self.db]))
 			self.save()
 
 	def save(self):
@@ -173,7 +173,7 @@ class Settings (dict):
 		"""Update the Settings panel with the current settings"""
 		if self.settings_list:
 			slist = [(unicode(description), unicode(self[id]))
-						for (id,description,default,s60,options) in self.SETTINGS
+						for (id,description,default,s60,options) in self.db
 						if s60_version_info[0] >= s60
 							and options != None
 					]
@@ -222,7 +222,7 @@ class Settings (dict):
 		"""edit a setting"""
 		(id, description, options) = \
 			[(id, description, options)
-				for (id,description,default,s60,options) in self.SETTINGS
+				for (id,description,default,s60,options) in self.db
 				if s60_version_info[0] >= s60
 					and options != None
 			][selection]
@@ -321,9 +321,8 @@ class Editor:
 				# display line numbers if enabled
 				if self.hasFocus:
 					if self.config[CONF_LINE_NUMBERS] == 'yes':
-						cur_pos = self.text.get_pos()
-						# ...
-						self.titlebar.prepend('document', u'[LNO] ')
+						n = self.text.get()[0:self.text.get_pos()].replace(u'\u2029',u'\n').count(u'\n')
+						self.titlebar.prepend('document', u'[' + unicode(n + 1) + '] ')
 						ao_yield()
 					ao_sleep(0.2)	# refresh rate of line numbers (seconds)
 				else:
