@@ -44,59 +44,100 @@ CONF_CASE_SENSITIVE		= 'case-sensitive search'
 from appuifw import *
 from key_codes import EKeySelect, EKeyLeftArrow, EKeyRightArrow, EKeyBackspace, EKey1, EKey2, EKeyEdit, EKeyYes
 from e32 import Ao_lock, ao_yield, ao_sleep, s60_version_info
-from os.path import exists
+from os.path import exists, isfile
 from sys import getdefaultencoding
 from encodings import aliases
+from graphics import FONT_ANTIALIAS
+from dir_iter import *
 
-class Titlebar:
-	"""A class to manage the S60 Titlebar"""
-	def __init__(self, default=app.title):
-		app.title = unicode(default)
+
+class Titlebar (object):
+	"""A class to manage the S60 Titlebar"""		
+	
+	# create a wrapper around the titlebar text which ignores prepended text
+	def __setTitle(self, value):
+		self.__title = app.title = value
+		ao_yield()
+	
+	def __getTitle(self):
+		return self.__title
+	
+	title = property(fget = __getTitle, fset = __setTitle)
+	
+	def __init__(self, id='default', default=app.title):
+		self.__title = unicode(default)
 		self.running = 0
-			
+		self.current_id = id
+	
 	def run(self, id, message, function, *args):
+		return self._run(False, id, message, function, *args)
+	
+	def run_no_path(self, id, message, function, *args):
+		return self._run(True, id, message, function, *args)
+	
+	def _run(self, override, id, message, function, *args):
 		"""Execute a function while displaying a message on the Titlebar"""
 		separator = u" > "
-		oldtitle = app.title
-		app.title = oldtitle + separator + unicode(message)
-		ao_yield()
+		oldtitle = self.title
+		oldid = self.current_id
+		self.currentid = id
+		if override:
+			self.title = unicode(message)
+		else:
+			self.title = oldtitle + separator + unicode(message)
 		retval = None
 		try:
 			retval = function(*args)
 		except:
 			if DEBUG:
 				print "Titlebar: Error in " + function.__name__
-		app.title = oldtitle
+		self.title = oldtitle
+		self.currentid = oldid
 		ao_yield()
 		return retval
+	
+	def prepend(self, id, message):
+		if self.current_id == id:
+			app.title = unicode(message) + self.title
+			ao_yield()
 
-
-class Settings:
+class Settings (dict):
 	"""Settings manager"""
 	
 	def __init__(self, path, titlebar=None):
-		if titlebar:
+		dict.__init__(self)
+		if titlebar != None:
 			self.titlebar = titlebar
 		else:
-			self.titlebar = Titlebar().run
-		self.config = {}
+			self.titlebar = Titlebar()
 		self.path = path
 		self.exit = Ao_lock()
 		# create a new configuration if one does not exist
-		existing_conf = exists(self.path)
+		existing_conf = isfile(self.path)
+		self.keep_config = False
 		if existing_conf:
-			# read the config file from disk
-			f = open(self.path, 'r')
-			conf_string = f.read()
-			f.close()
-			self.config = eval(conf_string)
-			# check if a new version has been installed
-			existing_conf = (self[CONF_VERSION] == VERSION)
+			try:
+				# read the config file from disk
+				f = open(self.path, 'r')
+				conf_string = f.read()
+				f.close()
+				self.update(eval(conf_string))
+				# check if a new version has been installed
+				existing_conf = (self[CONF_VERSION] == VERSION)
+			except:
+				if DEBUG:
+					print("Cannot read config file " + self.path)
+				note(u'Error reading settings', 'error')
+				if query(u'Reset settings?', 'query'):
+					self.keep_config = False
+				else:
+					self.keep_config = True
+				existing_conf = False
 		if not(existing_conf):
 			if DEBUG:
 				print("Creating new config...")
 			textbox_font = Text().font	# not very nice, but it does what is required
-			self.config = {\
+			self.update({
 				CONF_VERSION: VERSION,
 				CONF_SCREEN: app.screen,
 				CONF_ORIENTATION: 'automatic',
@@ -110,24 +151,21 @@ class Settings:
 				CONF_NEW_LINES: 'unix',
 				CONF_LINE_NUMBERS: 'yes',
 				CONF_CASE_SENSITIVE: 'no'
-			}
+			})
 			self.save()
-
-	def __getitem__(self, index):
-		return self.config.__getitem__(index)
-
-	def __setitem__(self, index, value):
-		return self.config.__setitem__(index, value)
 
 	def save(self):
 		"""Save current config to disk"""
 		if DEBUG:
 			print("Saving settings to " + self.path)
-		f = open(self.path, 'w')
-		f.write(repr(self.config))
-		f.close()
+		if not(self.keep_config):
+			f = open(self.path, 'w')
+			f.write(repr(self))
+			f.close()
+		elif DEBUG:
+			print("Config error on startup, not saved")
 
-	def update(self):
+	def refresh_ui(self):
 		"""Update the Settings panel with the current settings"""
 		if self.settings_list:
 			slist = [
@@ -148,23 +186,22 @@ class Settings:
 		elif DEBUG:
 			print "Settings: update: No list to update!"
 
-	def show(self, callback=None):
+	def show_ui(self, callback=None):
 		"""Create and show a settings editor"""
 		def show():
 			self.settings_list = Listbox([(u'dummy',u'item')])
-			self.update()
+			self.refresh_ui()
 			# save previous application state
 			previous_body = app.body
 			previous_menu = app.menu
 			previous_exit_key_handler = app.exit_key_handler
 			# show the settings editor
 			app.body = self.settings_list
-			self.settings_list.bind(EKeyRightArrow, self._modify)
-			self.settings_list.bind(EKeyEdit, self._modify)
-			self.settings_list.bind(EKeySelect, self._modify)
+			self.settings_list.bind(EKeyEdit, lambda: self._modify(self.settings_list.current()))
+			self.settings_list.bind(EKeySelect, lambda: self._modify(self.settings_list.current()))
 			self.settings_list.bind(EKeyYes, self.exit.signal)
 			app.menu =[
-				(u'Modify', self._modify),
+				(u'Modify', lambda: self._modify(self.settings_list.current())),
 				(u'Close', self.exit.signal),
 			]
 			app.exit_key_handler = self.exit.signal
@@ -175,17 +212,18 @@ class Settings:
 			app.menu = previous_menu
 			app.exit_key_handler = previous_exit_key_handler
 			del(self.settings_list)	# destroy list UI to save memory
-		if self.titlebar:
-			return self.titlebar('settings', u'Settings', show)
+		retval = None
+		if self.titlebar != None:
+			retval = self.titlebar.run('settings', u'Settings', show)
 		else:
-			return show()
-		if callback:
+			retval = show()
+		if callback != None:
 			callback()
+		return retval
 
 		
-	def _modify(self):
+	def _modify(self, selection):
 		"""edit a setting"""
-		selection = self.settings_list.current()
 		if selection == 0:
 			self.encoding()
 		elif selection == 1:
@@ -204,7 +242,7 @@ class Settings:
 			self.screen()
 		elif selection == 8:
 			self.orientation()
-		self.update()
+		self.refresh_ui()
 		self.save()
 
 	def history_max(self):
@@ -250,7 +288,7 @@ class Settings:
 			selection = selection_list(choices=fonts,search_field=1)
 			if selection != None:
 				self[CONF_FONT] = fonts[selection]
-		return self.titlebar('font', u'Font', font)
+		return self.titlebar.run('font', u'Font', font)
 
 	def font_size(self):
 		"""set the font size"""
@@ -268,7 +306,7 @@ class Settings:
 			selection = selection_list(choices=codecs, search_field=1)
 			if selection != None:
 				self[CONF_ENCODING] = str(codecs[selection]).lower()
-		return self.titlebar('font', u'Encoding', encoding)
+		return self.titlebar.run('font', u'Encoding', encoding)
 
 	def orientation(self):
 		"""change the screen orientation"""
@@ -303,7 +341,7 @@ class Editor:
 			if f:
 				focusLock.signal()
 		# read settings
-		self.titlebar = Titlebar(u'EasyEdit').run
+		self.titlebar = Titlebar('document', u'EasyEdit')
 		self.config = Settings(CONFFILE, self.titlebar)
 		self.hasFocus = True
 		# save current state
@@ -319,13 +357,13 @@ class Editor:
 		self.path = None
 		# set up menu
 		app.menu=[
-		#	(u'File', (
-		#		(u'New', self.f_new),
+			(u'File', (
+				(u'New', self.f_new),
 		#		(u'Open', self.f_open),
 		#		(u'Open recent', self.f_recent),
-		#		(u'Save', self.f_save),
+				(u'Save', self.f_save),
 		#		(u'Save As', self.f_save_as),
-		#	)),
+			)),
 		#	(u'Search', (
 		#		(u'Find', self.s_ffind),
 		#		(u'Find next', self.s_find),
@@ -333,7 +371,7 @@ class Editor:
 		#		(u'Replace', self.s_replace),
 		#		(u'Go to line', self.s_line),
 		#	)),
-			(u'Settings', self.config.show),
+			(u'Settings', lambda : self.config.show_ui(callback=self.refresh)),
 		#	(u'Help', (
 		#		(u'Open README', self.h_readme),
 		#		(u'About EasyEdit', self.h_about),
@@ -341,7 +379,7 @@ class Editor:
 			(u'Exit', exitHandler),
 			]
 		# start editing a new document
-		"""self.f_new()"""
+		self.f_new()
 		# display editor
 		app.body = self.text
 		ao_yield()
@@ -349,19 +387,21 @@ class Editor:
 		app.focus = focusHandler
 		"""# set the 'dial' key to save document
 		self.text.bind(EKeyYes, self.f_save)"""
-		#
-		self.running = True
-		while self.running:
-			# display line numbers if enabled
-			if self.hasFocus:
-				if self.config[CONF_LINE_NUMBERS] == 'yes':
-					cur_pos = self.text.get_pos()
-					# ...
-					ao_yield()
-				ao_sleep(0.2)	# refresh rate of line numbers (seconds)
-			else:
-				focusLock.wait()
-		self.save_query()
+		quit_app = None
+		while quit_app == None:
+			self.running = True
+			while self.running:
+				# display line numbers if enabled
+				if self.hasFocus:
+					if self.config[CONF_LINE_NUMBERS] == 'yes':
+						cur_pos = self.text.get_pos()
+						# ...
+						self.titlebar.prepend('document', u'[LNO] ')
+						ao_yield()
+					ao_sleep(0.2)	# refresh rate of line numbers (seconds)
+				else:
+					focusLock.wait()
+			quit_app = self.save_query()
 		# restore original state
 		app.title = old_title
 		app.screen = old_screen
@@ -377,12 +417,15 @@ class Editor:
 	def decode(self, text):
 		"""decode text according to settings"""
 		return unicode(text.decode(self.settings.config[CONF_ENCODING]))
+	
+	def exists(self):
+		return self.path != None and len(self.path > 0) and isfile(self.path)
 		
 	def save_query(self):
-		saved = None
+		save = False
 		save_required = True
 		current_text = self.text.get()
-		if self.path != None and len(self.path > 0) and exists(self.path):
+		if self.exists():
 			# read file and compare to current
 			f = open(self.path, 'r')
 			saved_text = f.read().decode(self.config[CONF_ENCODING])
@@ -394,11 +437,46 @@ class Editor:
 		if DEBUG:
 			print("Save required")
 		if save_required:
-			saved = query(u'Save file?', 'query')
-			if saved == True:
-				pass#f_save(self)
-		return saved
-		
+			save = popup_menu([u'Yes', u'No'], u'Save file?')
+			if save != None:
+				save = not(save)	# because 0 => yes, 0 => no
+				if save == True:
+					f_save(self)
+		return save
+
+	def refresh(self):
+		"""refresh the editor view"""
+		def refresh():
+			cursor_position = self.text.get_pos()
+			text = self.text.get()
+			self.text.font = (unicode(self.config[CONF_FONT]), self.config[CONF_FONT_SIZE], FONT_ANTIALIAS)
+			self.text.color = self.config[CONF_FONT_COLOUR]
+			self.text.set(text)
+			self.text.set_pos(cursor_position)
+		self.titlebar.run_no_path('refresh', '...busy...', refresh)
+
+	def f_new(self):
+		"""open an existing document"""
+		if self.save_query() != None:
+			self.text.clear()
+			self.refresh()
+			self.path = None
+	
+	def f_save(self):
+		"""save the current file"""
+		if self.exists():
+			try:
+				f=open(self.path, 'w')
+				f.write(encode(self.text.get()))
+				f.close()
+				note(u'File saved.','conf')
+			except:
+			    note(u'Error saving file.','error')
+		else:
+			pass#self.f_save_as()
+
+			
+	
 
 # run the editor!
 if __name__ == '__main__':

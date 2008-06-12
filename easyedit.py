@@ -370,7 +370,7 @@ class editor:
 
 
 class File_ops(object):
- """this class create a file browsing interface for saving/opening files.
+ """this class creates a file browsing interface for saving/opening files.
  it also provides basic useful file operations.
  """
  def __init__(self, initial_dir='\\'):
