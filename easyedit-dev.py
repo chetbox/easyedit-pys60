@@ -41,7 +41,7 @@ CONF_LINE_NUMBERS		= 'line numbers'
 CONF_CASE_SENSITIVE		= 'case-sensitive search'
 
 from appuifw import *
-from key_codes import EKeySelect, EKeyLeftArrow, EKeyRightArrow, EKeyBackspace, EKey1, EKey2, EKeyEdit, EKeyYes
+from key_codes import EKeyLeftArrow, EKeyRightArrow, EKeyBackspace, EKey1, EKey2, EKeyEdit, EKeyYes
 from e32 import Ao_lock, ao_yield, ao_sleep, s60_version_info, drive_list
 from os.path import exists, isfile, isdir, join
 from sys import getdefaultencoding, exc_info
@@ -183,7 +183,7 @@ class Settings (dict):
 	def show_ui(self, callback=None):
 		"""Create and show a settings editor"""
 		def show():
-			self.settings_list = Listbox([(u'dummy',u'item')])
+			self.settings_list = Listbox([(u'dummy',u'item')], lambda: self._modify(self.settings_list.current()))
 			self.refresh_ui()
 			# save previous application state
 			previous_body = app.body
@@ -192,7 +192,6 @@ class Settings (dict):
 			# show the settings editor
 			app.body = self.settings_list
 			self.settings_list.bind(EKeyEdit, lambda: self._modify(self.settings_list.current()))
-			self.settings_list.bind(EKeySelect, lambda: self._modify(self.settings_list.current()))
 			self.settings_list.bind(EKeyYes, self.exit.signal)
 			app.menu =[
 				(u'Modify', lambda: self._modify(self.settings_list.current())),
@@ -251,7 +250,8 @@ class Settings (dict):
 
 class Filebrowser (Directory_iter):
 	def __init__(self, initial_dir='\\', titlebar=Titlebar('filebrowser')):
-		Directory_iter.__init__(self, drive_list())
+		self.drive_list = drive_list()
+		Directory_iter.__init__(self, self.drive_list)
 		if initial_dir != '\\':
 			if isdir(initial_dir):
 				self.path = initial_dir
@@ -262,6 +262,14 @@ class Filebrowser (Directory_iter):
 		self.titlebar = titlebar
 		self.listbox = None
 		
+	def __getSelection(self):
+		if self.at_root:
+			return str(self.drive_list[self.listbox.current()])
+		else:
+			return join(self.path, str(self.entry(self.listbox.current())))
+			
+	abs_path = property(fget=__getSelection)
+		
 	def refresh_ui(self):
 			self.titlebar.temporary(self.path)
 			self.listbox.set_list(self.list_repr())
@@ -271,7 +279,7 @@ class Filebrowser (Directory_iter):
 		def show_ui():
 			self.return_path = None
 			def select():
-				self.return_path = join(self.path, str(self.entry(self.listbox.current())))	# not right at the root level
+				self.return_path = self.abs_path
 				note(unicode(self.return_path))
 				self.lock.signal()
 			def descend():
@@ -300,7 +308,6 @@ class Filebrowser (Directory_iter):
 				(u'Cancel', self.lock.signal),
 			]
 			self.listbox = Listbox([(u'dummy', u'item')], select)
-			self.listbox.bind(EKeySelect, select)
 			self.listbox.bind(EKeyRightArrow, descend)
 			self.listbox.bind(EKeyLeftArrow, ascend)
 			self.refresh_ui()
@@ -358,7 +365,7 @@ class Editor:
 		app.menu=[
 			(u'File', (
 				(u'New', self.f_new),
-		#		(u'Open', self.f_open),
+				(u'Open', self.f_open),
 		#		(u'Open recent', self.f_recent),
 				(u'Save', self.f_save),
 		#		(u'Save As', self.f_save_as),
@@ -410,11 +417,11 @@ class Editor:
 		
 	def encode(self, text):
 		"""encode text accoridng to settings"""
-		return text.replace(u'\n', u'\r\n').encode(self.settings.config[CONT_ENCODING])
+		return text.replace(u'\n', u'\r\n').encode(self.config[CONT_ENCODING])
 	
 	def decode(self, text):
 		"""decode text according to settings"""
-		return unicode(text.decode(self.settings.config[CONF_ENCODING]))
+		return unicode(text.decode(self.config[CONF_ENCODING]))
 	
 	def exists(self):
 		return self.path != None and len(self.path > 0) and isfile(self.path)
@@ -454,11 +461,21 @@ class Editor:
 		self.titlebar.run_no_path('refresh', u'...busy...', refresh)
 
 	def f_new(self):
-		"""open an existing document"""
+		"""start a new, blank document"""
 		if self.save_query() != None:
 			self.text.clear()
 			self.refresh()
 			self.path = None
+	
+	def f_open(self):	# to test properly - FileBrowser cannot return dirs!
+		"""open an existing document"""
+		fb = Filebrowser(self.config[CONF_LAST_DIR])
+		path = fb.show_ui()
+		f = open(path)
+		text = f.read()
+		f.close()
+		self.text.set(self.decode(text))
+		self.text.set_pos(0)
 	
 	def f_save(self):
 		"""save the current file"""
@@ -476,5 +493,4 @@ class Editor:
 
 # run the editor!
 if __name__ == '__main__':
-	#Editor().run()
-	print Filebrowser().show_ui()
+	Editor().run()
