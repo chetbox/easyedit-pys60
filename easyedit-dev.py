@@ -22,7 +22,7 @@ Released under GPLv2 (See COPYING.txt)
 
 # Settings
 VERSION=(2, 0, 2)
-DEBUG = False
+DEBUG = True
 CONFFILE='C:\\SYSTEM\\Data\\EasyEdit.conf.dev'
 
 # configuration file keys
@@ -43,8 +43,8 @@ CONF_CASE_SENSITIVE		= 'case-sensitive search'
 from appuifw import *
 from key_codes import EKeySelect, EKeyLeftArrow, EKeyRightArrow, EKeyBackspace, EKey1, EKey2, EKeyEdit, EKeyYes
 from e32 import Ao_lock, ao_yield, ao_sleep, s60_version_info, drive_list
-from os.path import exists, isfile, isdir
-from sys import getdefaultencoding
+from os.path import exists, isfile, isdir, join
+from sys import getdefaultencoding, exc_info
 from encodings import aliases
 from graphics import FONT_ANTIALIAS
 from dir_iter import Directory_iter
@@ -68,6 +68,14 @@ class Titlebar (object):
 		self.running = 0
 		self.current_id = id
 	
+	def temporary(self, message):
+		app.title = unicode(message)
+		ao_yield()
+	
+	def refresh(self):
+		app.title = self.title
+		ao_yield()
+	
 	def run(self, id, message, function, separator=u' > '):
 		return self._run(False, id, message, function)
 	
@@ -83,12 +91,7 @@ class Titlebar (object):
 			self.title = unicode(message)
 		else:
 			self.title = oldtitle + separator + unicode(message)
-		retval = None
-		try:
-			retval = function()
-		except:
-			if DEBUG:
-				print "Titlebar: Error in " + function.__name__
+		retval = function()
 		self.title = oldtitle
 		self.currentid = oldid
 		ao_yield()
@@ -212,7 +215,6 @@ class Settings (dict):
 			callback()
 		return retval
 
-		
 	def _modify(self, selection):
 		"""edit a setting"""
 		(id, description, options) = \
@@ -258,34 +260,61 @@ class Filebrowser (Directory_iter):
 				print("Filebrowser : Directory does not exist " + str(initial_dir))
 		self.lock = Ao_lock()
 		self.titlebar = titlebar
+		self.listbox = None
 		
-	def show_ui(self, return_dir=False, callback=None):
+	def refresh_ui(self):
+			self.titlebar.temporary(self.path)
+			self.listbox.set_list(self.list_repr())
+			ao_yield()
+	
+	def show_ui(self, return_dir=False):
 		def show_ui():
+			self.return_path = None
+			def select():
+				self.return_path = join(self.path, str(self.entry(self.listbox.current())))	# not right at the root level
+				note(unicode(self.return_path))
+				self.lock.signal()
+			def descend():
+				selection = self.listbox.current()
+				path = self.entry(selection)
+				if self.at_root or isdir(path):
+					self.add(selection)
+					self.refresh_ui()
+			def ascend():
+				if self.path != '\\':
+					self.pop()
+					self.refresh_ui()
 			# save ui state
 			body_previous = app.body
 			menu_previous = app.menu
 			exit_previous = app.exit_key_handler
 			# show file browser
 			app.menu = [
-				(u'[-] Select', self._select),
-				(u'<- Up', self._ascend),
-				(u'-> Enter directory', self._descend),
-				(u'[1] New directory', self._mkdir),
-				(u'[2] Execute file', self._run),
-				(u'[ABC] Rename', self._rename),
-				(u'[C] Delete', self._delete),
-				(u'Cancel', self._exit),
+				(u' []   Select', select),
+				(u' <-   Parent directory', ascend),
+				(u' ->   Enter directory', descend),
+			#	(u' 1    New directory', self._mkdir),
+			#	(u' 2    Execute file', self._run),
+			#	(u'ABC   Rename', self._rename),
+			#	(u' C    Delete', self._delete),
+				(u'Cancel', self.lock.signal),
 			]
-			listbox = Listbox(self.dir_iter.list_repr(), None)
+			self.listbox = Listbox([(u'dummy', u'item')], select)
+			self.listbox.bind(EKeySelect, select)
+			self.listbox.bind(EKeyRightArrow, descend)
+			self.listbox.bind(EKeyLeftArrow, ascend)
+			self.refresh_ui()
+			app.body = self.listbox
+			app.exit_key_handler = self.lock.signal
+			ao_yield()
+			self.lock.wait()
+			listbox = None	# let the listbox be garbage collected
 			# restore ui state
 			app.body = body_previous
 			app.menu = menu_previous
 			app.exit_key_handler = exit_previous
-			return path
-		retval = self.titlebar.run('filebrowser', unicode(self.path), show_ui)
-		if callback:
-			callback()
-		return retval
+			return self.return_path
+		return self.titlebar.run_no_path('filebrowser', unicode(self.path), show_ui)
 
 
 class Editor:
@@ -355,8 +384,8 @@ class Editor:
 		ao_yield()
 		app.exit_key_handler = exitHandler
 		app.focus = focusHandler
-		"""# set the 'dial' key to save document
-		self.text.bind(EKeyYes, self.f_save)"""
+		# set the 'dial' key to save document
+		self.text.bind(EKeyYes, self.f_save)
 		quit_app = None
 		while quit_app == None:
 			self.running = True
@@ -444,9 +473,8 @@ class Editor:
 		else:
 			pass#self.f_save_as()
 			
-	
 
 # run the editor!
 if __name__ == '__main__':
-	Editor().run()
-
+	#Editor().run()
+	print Filebrowser().show_ui()
