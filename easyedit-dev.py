@@ -40,7 +40,6 @@ CONF_NEW_LINES			= 'new lines'
 CONF_LINE_NUMBERS		= 'line numbers'
 CONF_CASE_SENSITIVE		= 'case-sensitive search'
 
-
 from appuifw import *
 from key_codes import EKeySelect, EKeyLeftArrow, EKeyRightArrow, EKeyBackspace, EKey1, EKey2, EKeyEdit, EKeyYes
 from e32 import Ao_lock, ao_yield, ao_sleep, s60_version_info
@@ -104,6 +103,25 @@ class Titlebar (object):
 class Settings (dict):
 	"""Settings manager"""
 	
+	db = [
+		# id					description				default					min. s60_version	options (None => no dialog)
+		(CONF_VERSION,			'Version',				VERSION,				1,					None										),
+		(CONF_ENCODING,			'File encoding',		getdefaultencoding(),	1,					[unicode(enc) for enc in aliases.aliases]	),
+		(CONF_NEW_LINES,		'New lines',			'unix',					1,					['unix', 'windows']							),
+		(CONF_CASE_SENSITIVE,	'Case sensitive find',	'no',					1,					['yes', 'no']								),
+		(CONF_FONT,				'Font',					Text().font[0],			1,					available_fonts()							),
+		(CONF_FONT_SIZE,		'Font size',			15,						2,					int											),
+		(CONF_FONT_COLOUR,		'Font colour',			(0,0,0),				1,					None										),
+		(CONF_LINE_NUMBERS,		'Display line number',	'yes',					1,					['yes', 'no']								),
+		(CONF_LAST_DIR,			'Last used directory',	'\\',					1,					None										),
+		(CONF_HISTORY,			'History',				[],						1,					None										),
+		(CONF_HISTORY_SIZE,		'Max history size',		8,						1,					int											),
+		(CONF_SCREEN,			'Screen Size',			'normal',				1,					['large', 'normal', 'full']					),
+		(CONF_ORIENTATION,		'Screen orientation',	'automatic',			3,					['automatic', 'portrait', 'landscape']		),
+	]
+	keep_config = False
+	titlebar = None
+	
 	def __init__(self, path, titlebar=None):
 		dict.__init__(self)
 		if titlebar != None:
@@ -114,7 +132,6 @@ class Settings (dict):
 		self.exit = Ao_lock()
 		# create a new configuration if one does not exist
 		existing_conf = isfile(self.path)
-		self.keep_config = False
 		if existing_conf:
 			try:
 				# read the config file from disk
@@ -137,21 +154,8 @@ class Settings (dict):
 			if DEBUG:
 				print("Creating new config...")
 			textbox_font = Text().font	# not very nice, but it does what is required
-			self.update({
-				CONF_VERSION: VERSION,
-				CONF_SCREEN: app.screen,
-				CONF_ORIENTATION: 'automatic',
-				CONF_FONT: textbox_font[0],
-				CONF_FONT_SIZE: textbox_font[1],
-				CONF_FONT_COLOUR: (0,0,0),
-				CONF_ENCODING: getdefaultencoding(),
-				CONF_HISTORY: [],
-				CONF_HISTORY_SIZE: 8,
-				CONF_LAST_DIR: '\\',
-				CONF_NEW_LINES: 'unix',
-				CONF_LINE_NUMBERS: 'yes',
-				CONF_CASE_SENSITIVE: 'no'
-			})
+			# set current settings to these defaults
+			self.update(dict([(id, default) for (id,description,default,s60,options) in self.SETTINGS]))
 			self.save()
 
 	def save(self):
@@ -168,19 +172,11 @@ class Settings (dict):
 	def refresh_ui(self):
 		"""Update the Settings panel with the current settings"""
 		if self.settings_list:
-			slist = [
-					(u'File encoding', unicode(self[CONF_ENCODING])),
-					(u'New lines', unicode(self[CONF_NEW_LINES])),
-					(u'Case-sensitive find', unicode(self[CONF_CASE_SENSITIVE])),
-					(u'Font', unicode(self[CONF_FONT])),
-					(u'Font size', unicode(self[CONF_FONT_SIZE])),
-					(u'Display line number', unicode(self[CONF_LINE_NUMBERS])),
-					(u'Max history size', unicode(self[CONF_HISTORY_SIZE])),
-					(u'Screen size', unicode(self[CONF_SCREEN])),
-			]
-			# add screen orientation option for 3rd-edition devices
-			if s60_version_info[0] >= 3:
-					slist.append((u'Screen orientation', unicode(self[CONF_ORIENTATION])))
+			slist = [(unicode(description), unicode(self[id]))
+						for (id,description,default,s60,options) in self.SETTINGS
+						if s60_version_info[0] >= s60
+							and options != None
+					]
 			self.settings_list.set_list(slist, self.settings_list.current())
 			ao_yield()
 		elif DEBUG:
@@ -224,99 +220,30 @@ class Settings (dict):
 		
 	def _modify(self, selection):
 		"""edit a setting"""
-		if selection == 0:
-			self.encoding()
-		elif selection == 1:
-			self.newlines()
-		elif selection == 2:
-			self.casesensitive()
-		elif selection == 3:
-			self.font()
-		elif selection == 4:
-			self.font_size()
-		elif selection == 5:
-			self.linenos()
-		elif selection == 6:
-			self.history_max()
-		elif selection == 7:
-			self.screen()
-		elif selection == 8:
-			self.orientation()
+		(id, description, options) = \
+			[(id, description, options)
+				for (id,description,default,s60,options) in self.SETTINGS
+				if s60_version_info[0] >= s60
+					and options != None
+			][selection]
+		# save a copy of current config
+		oldconfig = self.copy()
+		# display options
+		if options == int:
+			selection = query(unicode(description), 'number', self[id])			
+		elif len(options) <= 4:
+			selection = popup_menu([unicode(option).capitalize() for option in options], unicode(description))
+		elif len(options) > 4:
+			options = [unicode(option) for option in options]
+			options.sort()
+			selection = selection_list(choices=options,search_field=1)
+		if selection != None:
+			self[id] = str(options[selection])
 		self.refresh_ui()
-		self.save()
+		# save if any changes have been made
+		if oldconfig != self:
+			self.save()
 
-	def history_max(self):
-		"""set the maximum history size"""
-		newsize = query(u'Max history size', 'number', self[CONF_HISTORY_SIZE])
-		if newsize != None:
-			self[CONF_HISTORY_SIZE] = newsize
-
-	def casesensitive(self):
-		options = [u'Yes', u'No']
-		selection = popup_menu(options, u'Case-sensitive find')
-		if selection != None:
-			self[CONF_CASE_SENSITIVE] = str(options[selection]).lower()
-
-	def linenos(self):
-		options = [u'Yes', u'No']
-		selection = popup_menu(options, u'Display line number')
-		if selection != None:
-			self[CONF_LINE_NUMBERS] = str(options[selection]).lower()
-
-	def newlines(self):
-		options = [u'Unix', u'Windows']
-		newstyle = popup_menu(options, u'New lines')
-		if newstyle != None:
-			self[CONF_NEW_LINES] = str(options[newstyle]).lower()
-
-	def screen(self):
-		"""change the screen size"""
-		options = [u'Normal', u'Large', u'Full']
-		new_screen = popup_menu(options, u'Screen size')
-		# save the changes
-		if new_screen != None:
-			self[CONF_SCREEN] = str(options[new_screen]).lower()
-			app.screen = self[CONF_SCREEN]
-
-	def font(self):
-		"""change the display font"""
-		def font():
-			# get a list of fonts
-			fonts = available_fonts()
-			fonts.sort()
-			# display a searchable list
-			selection = selection_list(choices=fonts,search_field=1)
-			if selection != None:
-				self[CONF_FONT] = fonts[selection]
-		return self.titlebar.run('font', u'Font', font)
-
-	def font_size(self):
-		"""set the font size"""
-		newsize = query(u'Font size:', 'number', self[CONF_FONT_SIZE])
-		if newsize != None:
-			self[CONF_FONT_SIZE] = newsize
-
-	def encoding(self):
-		"""set the file encoding"""
-		def encoding():
-			# get a list of codecs to display
-			codecs = [unicode(enc) for enc in aliases.aliases]
-			codecs.sort()
-			# display a searchable list
-			selection = selection_list(choices=codecs, search_field=1)
-			if selection != None:
-				self[CONF_ENCODING] = str(codecs[selection]).lower()
-		return self.titlebar.run('font', u'Encoding', encoding)
-
-	def orientation(self):
-		"""change the screen orientation"""
-		# create list of options
-		options = [u'Automatic', u'Portrait', u'Landscape']
-		# display a searchable list
-		selection = popup_menu(options, u'Screen orientation')
-		if selection != None:
-			self[CONF_ORIENTATION] = str(options[selection]).lower()
-			app.orientation = self[CONF_ORIENTATION]
 
 class Editor:
 	"""A simple text editor for s60
@@ -474,7 +401,6 @@ class Editor:
 			    note(u'Error saving file.','error')
 		else:
 			pass#self.f_save_as()
-
 			
 	
 
