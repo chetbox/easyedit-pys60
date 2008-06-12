@@ -42,13 +42,12 @@ CONF_CASE_SENSITIVE		= 'case-sensitive search'
 
 from appuifw import *
 from key_codes import EKeySelect, EKeyLeftArrow, EKeyRightArrow, EKeyBackspace, EKey1, EKey2, EKeyEdit, EKeyYes
-from e32 import Ao_lock, ao_yield, ao_sleep, s60_version_info
-from os.path import exists, isfile
+from e32 import Ao_lock, ao_yield, ao_sleep, s60_version_info, drive_list
+from os.path import exists, isfile, isdir
 from sys import getdefaultencoding
 from encodings import aliases
 from graphics import FONT_ANTIALIAS
-from dir_iter import *
-
+from dir_iter import Directory_iter
 
 
 class Titlebar (object):
@@ -69,15 +68,14 @@ class Titlebar (object):
 		self.running = 0
 		self.current_id = id
 	
-	def run(self, id, message, function, *args):
-		return self._run(False, id, message, function, *args)
+	def run(self, id, message, function, separator=u' > '):
+		return self._run(False, id, message, function)
 	
-	def run_no_path(self, id, message, function, *args):
-		return self._run(True, id, message, function, *args)
+	def run_no_path(self, id, message, function, separator=u' > '):
+		return self._run(True, id, message, function)
 	
-	def _run(self, override, id, message, function, *args):
+	def _run(self, override, id, message, function, separator=u' > '):
 		"""Execute a function while displaying a message on the Titlebar"""
-		separator = u" > "
 		oldtitle = self.title
 		oldid = self.current_id
 		self.currentid = id
@@ -87,7 +85,7 @@ class Titlebar (object):
 			self.title = oldtitle + separator + unicode(message)
 		retval = None
 		try:
-			retval = function(*args)
+			retval = function()
 		except:
 			if DEBUG:
 				print "Titlebar: Error in " + function.__name__
@@ -121,12 +119,9 @@ class Settings (dict):
 		(CONF_ORIENTATION,		'Screen orientation',	'automatic',			3,					['automatic', 'portrait', 'landscape']		),
 	]
 
-	def __init__(self, path, titlebar=None):
+	def __init__(self, path, titlebar=Titlebar('settings')):
 		dict.__init__(self)
-		if titlebar != None:
-			self.titlebar = titlebar
-		else:
-			self.titlebar = Titlebar()
+		self.titlebar = titlebar
 		self.path = path
 		self.exit = Ao_lock()
 		# create a new configuration if one does not exist
@@ -229,20 +224,68 @@ class Settings (dict):
 		# save a copy of current config
 		oldconfig = self.copy()
 		# display options
-		if options == int:
-			selection = query(unicode(description), 'number', self[id])			
-		elif len(options) <= 4:
-			selection = popup_menu([unicode(option).capitalize() for option in options], unicode(description))
-		elif len(options) > 4:
-			options = [unicode(option) for option in options]
-			options.sort()
-			selection = selection_list(choices=options,search_field=1)
-		if selection != None:
-			self[id] = str(options[selection])
+		selection = None
+		if options.__class__ == type:
+			if options == int:
+				selection = query(unicode(description), 'number', self[id])
+			if selection != None:
+				self[id] = selection
+		elif options.__class__ == list:
+			if len(options) <= 4:
+				selection = popup_menu([unicode(option).capitalize() for option in options], unicode(description))
+			else:
+				options = [unicode(option) for option in options]
+				options.sort()
+				selection = selection_list(choices=options, search_field=True)
+			if selection != None:
+				self[id] = str(options[selection])
+		elif DEBUG:
+			print("Settings : Unsupported type " + str(options.__class__))
 		self.refresh_ui()
 		# save if any changes have been made
 		if oldconfig != self:
 			self.save()
+
+
+class Filebrowser (Directory_iter):
+	def __init__(self, initial_dir='\\', titlebar=Titlebar('filebrowser')):
+		Directory_iter.__init__(self, drive_list())
+		if initial_dir != '\\':
+			if isdir(initial_dir):
+				self.path = initial_dir
+				self.at_root = 0
+			elif DEBUG:
+				print("Filebrowser : Directory does not exist " + str(initial_dir))
+		self.lock = Ao_lock()
+		self.titlebar = titlebar
+		
+	def show_ui(self, return_dir=False, callback=None):
+		def show_ui():
+			# save ui state
+			body_previous = app.body
+			menu_previous = app.menu
+			exit_previous = app.exit_key_handler
+			# show file browser
+			app.menu = [
+				(u'[-] Select', self._select),
+				(u'<- Up', self._ascend),
+				(u'-> Enter directory', self._descend),
+				(u'[1] New directory', self._mkdir),
+				(u'[2] Execute file', self._run),
+				(u'[ABC] Rename', self._rename),
+				(u'[C] Delete', self._delete),
+				(u'Cancel', self._exit),
+			]
+			listbox = Listbox(self.dir_iter.list_repr(), None)
+			# restore ui state
+			app.body = body_previous
+			app.menu = menu_previous
+			app.exit_key_handler = exit_previous
+			return path
+		retval = self.titlebar.run('filebrowser', unicode(self.path), show_ui)
+		if callback:
+			callback()
+		return retval
 
 
 class Editor:
@@ -379,7 +422,7 @@ class Editor:
 			self.text.color = self.config[CONF_FONT_COLOUR]
 			self.text.set(text)
 			self.text.set_pos(cursor_position)
-		self.titlebar.run_no_path('refresh', '...busy...', refresh)
+		self.titlebar.run_no_path('refresh', u'...busy...', refresh)
 
 	def f_new(self):
 		"""open an existing document"""
