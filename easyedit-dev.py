@@ -278,10 +278,6 @@ class Filebrowser (Directory_iter):
 	def show_ui(self, return_dir=False):
 		def show_ui():
 			self.return_path = None
-			def select():
-				self.return_path = self.abs_path
-				note(unicode(self.return_path))
-				self.lock.signal()
 			def descend():
 				selection = self.listbox.current()
 				path = self.entry(selection)
@@ -292,6 +288,12 @@ class Filebrowser (Directory_iter):
 				if self.path != '\\':
 					self.pop()
 					self.refresh_ui()
+			def select():
+				if isfile(self.abs_path):
+					self.return_path = self.abs_path
+					self.lock.signal()
+				else:
+					descend()
 			# save ui state
 			body_previous = app.body
 			menu_previous = app.menu
@@ -441,7 +443,7 @@ class Editor:
 			save_required = False
 		if DEBUG:
 			print("Save required")
-		if save_required:
+		if save_required: # doesn't quite work
 			save = popup_menu([u'Yes', u'No'], u'Save file?')
 			if save != None:
 				save = not(save)	# because 0 => yes, 0 => no
@@ -467,15 +469,16 @@ class Editor:
 			self.refresh()
 			self.path = None
 	
-	def f_open(self):	# to test properly - FileBrowser cannot return dirs!
+	def f_open(self):
 		"""open an existing document"""
 		fb = Filebrowser(self.config[CONF_LAST_DIR])
 		path = fb.show_ui()
-		f = open(path)
-		text = f.read()
-		f.close()
-		self.text.set(self.decode(text))
-		self.text.set_pos(0)
+		if path != None:
+			f = open(path)
+			text = f.read()
+			f.close()
+			self.text.set(self.decode(text))
+			self.text.set_pos(0)
 	
 	def f_save(self):
 		"""save the current file"""
@@ -484,7 +487,7 @@ class Editor:
 				f=open(self.path, 'w')
 				f.write(encode(self.text.get()))
 				f.close()
-				note(u'File saved.','conf')
+				note(u'File saved','conf')
 			except:
 			    note(u'Error saving file.','error')
 		else:
