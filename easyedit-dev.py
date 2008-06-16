@@ -121,6 +121,12 @@ class Settings (dict):
 		(CONF_SCREEN,			'Screen Size',			'normal',				1,					['large', 'normal', 'full']					),
 		(CONF_ORIENTATION,		'Screen orientation',	'automatic',			3,					['automatic', 'portrait', 'landscape']		),
 	]
+	saveRequired = False
+	
+	def __setitem__(self, key, value):
+		"""equivalent to dict.__setitem__ but flags saveRequired"""
+		self.saveRequired = True
+		dict.__setitem__(self, key, value)
 
 	def __init__(self, path, titlebar=Titlebar('settings')):
 		dict.__init__(self)
@@ -160,10 +166,14 @@ class Settings (dict):
 		"""Save current config to disk"""
 		if DEBUG:
 			print("Saving settings to " + self.path)
-		if not(self.keep_config):
-			f = open(self.path, 'w')
-			f.write(repr(self))
-			f.close()
+		if self.saveRequired and not(self.keep_config):
+			try:
+				f = open(self.path, 'w')
+				f.write(repr(self))
+				f.close()
+				self.saveRequired = False
+			except:
+				note(u'Error saving config', 'error')
 		elif DEBUG:
 			print("Config error on startup, not saved")
 
@@ -419,14 +429,26 @@ class Editor:
 		
 	def encode(self, text):
 		"""encode text accoridng to settings"""
-		return text.replace(u'\n', u'\r\n').encode(self.config[CONT_ENCODING])
+		# ensure all new-lines are represented as '\n'
+		encoded_text = text.replace(u'\u2029',u'\n')
+		# convert to windows format if required
+		if self.config[CONF_NEW_LINES] == 'windows':
+			encoded_text = encoded_text.replace(u'\n', u'\r\n')
+		# convert text
+		encoded_text = encoded_text.encode(self.config[CONF_ENCODING])
+		return encoded_text
 	
 	def decode(self, text):
 		"""decode text according to settings"""
-		return unicode(text.decode(self.config[CONF_ENCODING]))
+		# decode text
+		decoded_text = unicode(text.decode(self.config[CONF_ENCODING]))
+		# replace windows new lines if necessary
+		if self.config[CONF_NEW_LINES] == 'windows':
+			decoded_text = decoded_text.replace(u'\r\n', u'\n')
+		return decoded_text
 	
 	def exists(self):
-		return self.path != None and len(self.path > 0) and isfile(self.path)
+		return self.path != None and len(self.path) > 0 and isfile(self.path)
 		
 	def save_query(self):
 		save = False
@@ -437,18 +459,18 @@ class Editor:
 			f = open(self.path, 'r')
 			saved_text = f.read().decode(self.config[CONF_ENCODING])
 			f.close()
-			if saved_text == encode(current_text):
+			if saved_text == self.encode(current_text):
 				save_required = False
 		if (self.path == None or len(self.path) == 0) and len(current_text) == 0:
 			save_required = False
-		if DEBUG:
-			print("Save required")
-		if save_required: # doesn't quite work
+		if save_required:
+			if DEBUG:
+				print("Save required")
 			save = popup_menu([u'Yes', u'No'], u'Save file?')
 			if save != None:
 				save = not(save)	# because 0 => yes, 0 => no
 				if save == True:
-					f_save(self)
+					self.f_save()
 		return save
 
 	def refresh(self):
@@ -473,19 +495,30 @@ class Editor:
 		"""open an existing document"""
 		fb = Filebrowser(self.config[CONF_LAST_DIR])
 		path = fb.show_ui()
-		if path != None:
+		if path != None and self.save_query() != None:
+			# read file from disk
 			f = open(path)
 			text = f.read()
 			f.close()
+			# show file in editor
 			self.text.set(self.decode(text))
 			self.text.set_pos(0)
+			# notify editor a file has been opened
+			self.__flag_opened(path)
+
+	def __flag_opened(self, path):
+			"""notify editor a file has been opened"""
+			self.path = path
+			# add to recent list
+			self.config[CONF_HISTORY] = ([path] + self.config[CONF_HISTORY])[:self.config[CONF_HISTORY_SIZE]]
 	
 	def f_save(self):
 		"""save the current file"""
 		if self.exists():
 			try:
+				text = self.encode(self.text.get())
 				f=open(self.path, 'w')
-				f.write(encode(self.text.get()))
+				f.write(text)
 				f.close()
 				note(u'File saved','conf')
 			except:
