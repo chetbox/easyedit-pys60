@@ -24,6 +24,7 @@ Released under GPLv2 (See COPYING.txt)
 VERSION=(2, 0, 2)
 DEBUG = True
 CONFFILE='C:\\SYSTEM\\Data\\EasyEdit.conf.dev'
+BUSY_MESSAGE = u'[busy]'
 
 # configuration file keys
 CONF_VERSION			= 'version'
@@ -43,7 +44,7 @@ CONF_CASE_SENSITIVE		= 'case-sensitive search'
 from appuifw import *
 from key_codes import EKeyLeftArrow, EKeyRightArrow, EKeyBackspace, EKey1, EKey2, EKeyEdit, EKeyYes
 from e32 import Ao_lock, ao_yield, ao_sleep, s60_version_info, drive_list
-from os.path import exists, isfile, isdir, join
+from os.path import exists, isfile, isdir, join, basename
 from sys import getdefaultencoding, exc_info
 from encodings import aliases
 from graphics import FONT_ANTIALIAS
@@ -188,7 +189,7 @@ class Settings (dict):
 			self.settings_list.set_list(slist, self.settings_list.current())
 			ao_yield()
 		elif DEBUG:
-			print "Settings: update: No list to update!"
+			print("Settings: update: No list to update!")
 
 	def show_ui(self, callback=None):
 		"""Create and show a settings editor"""
@@ -327,7 +328,7 @@ class Filebrowser (Directory_iter):
 			app.exit_key_handler = self.lock.signal
 			ao_yield()
 			self.lock.wait()
-			listbox = None	# let the listbox be garbage collected
+			self.listbox = None	# let the listbox be garbage collected
 			# restore ui state
 			app.body = body_previous
 			app.menu = menu_previous
@@ -347,6 +348,8 @@ class Editor:
 		self.titlebar = None
 		self.config = None
 		self.hasFocus = False
+		self.filebrowser = None
+		self.__document_lock = None
 
 	def run(self):
 		"""Start EasyEdit"""
@@ -419,6 +422,9 @@ class Editor:
 				else:
 					focusLock.wait()
 			quit_app = self.save_query()
+		# unlock any pending locks
+		if self.__document_lock != None:
+			self.__document_lock.signal()
 		# restore original state
 		app.title = old_title
 		app.screen = old_screen
@@ -448,7 +454,7 @@ class Editor:
 		return decoded_text
 	
 	def exists(self):
-		return self.path != None and len(self.path) > 0 and isfile(self.path)
+		return (self.path != None) and (len(self.path) > 0) and isfile(self.path)
 		
 	def save_query(self):
 		save = False
@@ -457,11 +463,11 @@ class Editor:
 		if self.exists():
 			# read file and compare to current
 			f = open(self.path, 'r')
-			saved_text = f.read().decode(self.config[CONF_ENCODING])
+			saved_text = f.read()
 			f.close()
 			if saved_text == self.encode(current_text):
 				save_required = False
-		if (self.path == None or len(self.path) == 0) and len(current_text) == 0:
+		elif len(current_text) == 0:
 			save_required = False
 		if save_required:
 			if DEBUG:
@@ -484,37 +490,72 @@ class Editor:
 			self.text.set_pos(cursor_position)
 		self.titlebar.run_no_path('refresh', u'...busy...', refresh)
 
-	def f_new(self):
+	def f_new(self, force=False):
 		"""start a new, blank document"""
-		if self.save_query() != None:
+		if force or self.save_query() != None:
 			self.text.clear()
 			self.refresh()
-			self.path = None
+			#self.path = None
+			self.__open_document(None)
 	
-	def f_open(self):
+	def f_open(self, file_path=None):
 		"""open an existing document"""
-		fb = Filebrowser(self.config[CONF_LAST_DIR])
-		path = fb.show_ui()
+		path = file_path
+		# show file selector if no path specified
+		if path == None:
+			if self.filebrowser == None:
+				self.filebrowser = Filebrowser(self.config[CONF_LAST_DIR], self.titlebar)
+			path = self.filebrowser.show_ui()
+		# show "save?" dialog if necesary and open document
 		if path != None and self.save_query() != None:
-			# read file from disk
-			f = open(path)
-			text = f.read()
-			f.close()
-			# show file in editor
-			self.text.set(self.decode(text))
-			self.text.set_pos(0)
-			# notify editor a file has been opened
-			self.__flag_opened(path)
-
-	def __flag_opened(self, path):
-			"""notify editor a file has been opened"""
-			self.path = path
+			# open the document
+			self.__open_document(path)
+			
+	def __open_document(self, path, read_from_disk=True):
+		"""Open a document by reading from disk, and showing "busy" status.
+		Locks until called again"""
+		oldpath = self.path
+		self.path = path
+		if self.__document_lock != None:
+			self.__document_lock.signal()
+		def open_document():
+			error = False
+			if read_from_disk:
+				# show "busy" message
+				self.titlebar.prepend('document', BUSY_MESSAGE + u' ')
+				try:
+					# read file from disk
+					f = open(path)
+					text = f.read()
+					f.close()
+					text = self.decode(text)
+					# show file in editor
+					self.text.clear()
+					self.refresh()
+					self.text.set(text)
+					self.text.set_pos(0)
+				except:
+					note(u'Error opening file', 'error')
+					# fallback to the previous document if there was an error
+					self.__open_document(oldpath, read_from_disk=False)
+					error = True
+			if not(error):
+				if self.__document_lock == None:
+					self.__document_lock = Ao_lock()
+				#self.__document_lock.wait()	# seems to block UI! =(
+				self.__document_lock = None
+		if path != None:
 			# add to recent list
 			self.config[CONF_HISTORY] = ([path] + self.config[CONF_HISTORY])[:self.config[CONF_HISTORY_SIZE]]
-	
+			self.config.save()
+			# show filename in titlebar until a different file is opened
+			self.titlebar.run('document', unicode(basename(path)), open_document)
+
 	def f_save(self):
 		"""save the current file"""
 		if self.exists():
+			# show "busy" message
+			self.titlebar.prepend('document', BUSY_MESSAGE + u' ')
 			try:
 				text = self.encode(self.text.get())
 				f=open(self.path, 'w')
@@ -523,6 +564,8 @@ class Editor:
 				note(u'File saved','conf')
 			except:
 			    note(u'Error saving file.','error')
+			# clear "busy" message
+			self.titlebar.refresh()
 		else:
 			pass#self.f_save_as()
 			
