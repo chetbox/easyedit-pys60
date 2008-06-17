@@ -44,7 +44,7 @@ CONF_CASE_SENSITIVE		= 'case-sensitive search'
 from appuifw import *
 from key_codes import EKeyLeftArrow, EKeyRightArrow, EKeyBackspace, EKey1, EKey2, EKeyEdit, EKeyYes
 from e32 import Ao_lock, ao_yield, ao_sleep, s60_version_info, drive_list
-from os.path import exists, isfile, isdir, join, basename
+from os.path import exists, isfile, isdir, join, basename, dirname
 from sys import getdefaultencoding, exc_info
 from encodings import aliases
 from graphics import FONT_ANTIALIAS
@@ -381,7 +381,7 @@ class Editor:
 			(u'File', (
 				(u'New', self.f_new),
 				(u'Open', self.f_open),
-		#		(u'Open recent', self.f_recent),
+				(u'Open recent', self.f_open_recent),
 				(u'Save', self.f_save),
 		#		(u'Save As', self.f_save_as),
 			)),
@@ -498,18 +498,38 @@ class Editor:
 			#self.path = None
 			self.__open_document(None)
 	
-	def f_open(self, file_path=None):
+	def f_open(self):
 		"""open an existing document"""
-		path = file_path
 		# show file selector if no path specified
-		if path == None:
-			if self.filebrowser == None:
-				self.filebrowser = Filebrowser(self.config[CONF_LAST_DIR], self.titlebar)
-			path = self.filebrowser.show_ui()
+		path = None
+		if self.filebrowser == None:
+			self.filebrowser = Filebrowser(self.config[CONF_LAST_DIR], self.titlebar)
+		path = self.filebrowser.show_ui()
 		# show "save?" dialog if necesary and open document
 		if path != None and self.save_query() != None:
 			# open the document
 			self.__open_document(path)
+	
+	def f_open_recent(self):
+		lock = Ao_lock()
+		listbox = None
+		def select():
+			self.__open_document(self.config[CONF_HISTORY][listbox.current()])
+			lock.signal()
+		def exit_key_handler():
+			lock.signal()
+		# save previous application state
+		previous_body = app.body
+		previous_menu = app.menu
+		previous_exit_key_handler = app.exit_key_handler
+		listbox = Listbox([(basename((unicode(file))), dirname(unicode(file))) for file in self.config[CONF_HISTORY]], select)
+		app.body = listbox
+		app.exit_key_handler = exit_key_handler
+		lock.wait()
+		# exit the editor
+		app.body = previous_body
+		app.menu = previous_menu
+		app.exit_key_handler = previous_exit_key_handler
 			
 	def __open_document(self, path, read_from_disk=True):
 		"""Open a document by reading from disk, and showing "busy" status.
