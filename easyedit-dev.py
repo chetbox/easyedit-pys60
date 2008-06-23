@@ -44,6 +44,7 @@ CONF_CASE_SENSITIVE		= 'case-sensitive search'
 from appuifw import *
 from key_codes import EKeyLeftArrow, EKeyRightArrow, EKeyBackspace, EKey1, EKey2, EKeyEdit, EKeyYes
 from e32 import Ao_lock, ao_yield, ao_sleep, s60_version_info, drive_list
+from os import rename
 from os.path import exists, isfile, isdir, join, basename, dirname
 from sys import getdefaultencoding, exc_info
 from encodings import aliases
@@ -282,11 +283,16 @@ class Filebrowser (Directory_iter):
 	abs_path = property(fget=__getSelection)
 		
 	def refresh_ui(self):
+		dir_listing = self.list_repr()
+		if len(dir_listing) > 0:
 			self.titlebar.temporary(self.path)
-			self.listbox.set_list(self.list_repr())
+			self.listbox.set_list(dir_listing)
 			ao_yield()
+		else:
+			self.pop()
+			note(u'Empty directory', 'info')
 	
-	def show_ui(self, return_dir=False):
+	def show_ui(self, allow_directory=False):
 		def show_ui():
 			self.return_path = None
 			def descend():
@@ -300,11 +306,23 @@ class Filebrowser (Directory_iter):
 					self.pop()
 					self.refresh_ui()
 			def select():
-				if isfile(self.abs_path):
+				if allow_directory or isfile(self.abs_path):
 					self.return_path = self.abs_path
 					self.lock.signal()
 				else:
 					descend()
+			def rename_file():
+				path = self.entry(self.listbox.current())
+				filename = basename(path)
+				new_name = query(u'Rename ' + filename, 'text', unicode(filename))
+				if new_name != None:
+					try:
+						new_path = dirname(path) + str(new_name)
+						rename(path, new_path)
+						note(u'File renamed', 'info')
+					except:
+						note(u'Error renaming file!', 'error')
+					self.refresh_ui()
 			# save ui state
 			body_previous = app.body
 			menu_previous = app.menu
@@ -316,13 +334,13 @@ class Filebrowser (Directory_iter):
 				(u' ->   Enter directory', descend),
 			#	(u' 1    New directory', self._mkdir),
 			#	(u' 2    Execute file', self._run),
-			#	(u'ABC   Rename', self._rename),
+				(u'ABC   Rename', rename_file),
 			#	(u' C    Delete', self._delete),
-				(u'Cancel', self.lock.signal),
 			]
 			self.listbox = Listbox([(u'dummy', u'item')], select)
 			self.listbox.bind(EKeyRightArrow, descend)
 			self.listbox.bind(EKeyLeftArrow, ascend)
+			self.listbox.bind(EKeyEdit, rename_file)
 			self.refresh_ui()
 			app.body = self.listbox
 			app.exit_key_handler = self.lock.signal
@@ -383,7 +401,7 @@ class Editor:
 				(u'Open', self.f_open),
 				(u'Open recent', self.f_open_recent),
 				(u'Save', self.f_save),
-		#		(u'Save As', self.f_save_as),
+				(u'Save As', self.f_save_as),
 			)),
 		#	(u'Search', (
 		#		(u'Find', self.s_ffind),
@@ -500,7 +518,7 @@ class Editor:
 	
 	def f_open(self):
 		"""open an existing document"""
-		# show file selector if no path specified
+		# show file selector
 		path = None
 		if self.filebrowser == None:
 			self.filebrowser = Filebrowser(self.config[CONF_LAST_DIR], self.titlebar)
@@ -587,8 +605,29 @@ class Editor:
 			# clear "busy" message
 			self.titlebar.refresh()
 		else:
-			pass#self.f_save_as()
-			
+			self.f_save_as()
+	
+	def f_save_as(self):
+		"""save current file at a new location"""
+		# show file selector
+		path = None
+		if self.filebrowser == None:
+			self.filebrowser = Filebrowser(self.config[CONF_LAST_DIR], self.titlebar)
+		path = self.filebrowser.show_ui(allow_directory=True)
+		if path != None:
+			# assume path selected is a directory
+			suggested_filename = u'untitled.txt'
+			new_file_location = path
+			# check if the file selected that is a path
+			if isfile(path):
+				suggested_filename = unicode(basename(dirname(path))) + u'\\' + unicode(basename(path))
+				new_file_location = dirname(dirname(path))
+			new_filename = query(unicode(new_file_location), 'text', suggested_filename)
+			if new_filename != None:
+				self.path = join(new_file_location, new_filename)
+				note(unicode(self.path))
+				#f_save()
+
 
 # run the editor!
 if __name__ == '__main__':
