@@ -21,25 +21,26 @@ Released under GPLv2 (See COPYING.txt)
 
 
 # Settings
-VERSION=(2, 0, 2)
+VERSION=(2, 0, 4)
 DEBUG = True
 CONFFILE='C:\\SYSTEM\\Data\\EasyEdit.conf.dev'
 BUSY_MESSAGE = u'[busy]'
 
 # configuration file keys
-CONF_VERSION			= 'version'
-CONF_SCREEN				= 'screen size'
-CONF_ORIENTATION		= 'screen orentation'
-CONF_FONT				= 'font'
-CONF_FONT_SIZE			= 'font size'
-CONF_FONT_COLOUR		= 'font colour'
-CONF_ENCODING			= 'encoding'
-CONF_HISTORY			= 'history'
-CONF_HISTORY_SIZE		= 'history size'
-CONF_LAST_DIR			= 'last dir'
-CONF_NEW_LINES			= 'new lines'
-CONF_LINE_NUMBERS		= 'line numbers'
-CONF_CASE_SENSITIVE		= 'case-sensitive search'
+CONF_VERSION		= 'version'
+CONF_SCREEN		= 'screen size'
+CONF_ORIENTATION	= 'screen orentation'
+CONF_FONT		= 'font'
+CONF_FONT_SIZE		= 'font size'
+CONF_FONT_COLOUR	= 'font colour'
+CONF_FONT_ANTIALIAS	= 'font anti-aliasing'
+CONF_ENCODING		= 'encoding'
+CONF_HISTORY		= 'history'
+CONF_HISTORY_SIZE	= 'history size'
+CONF_LAST_DIR		= 'last dir'
+CONF_NEW_LINES		= 'new lines'
+CONF_LINE_NUMBERS	= 'line numbers'
+CONF_CASE_SENSITIVE	= 'case-sensitive search'
 
 from appuifw import *
 from key_codes import EKeyLeftArrow, EKeyRightArrow, EKeyBackspace, EKey1, EKey2, EKeyEdit, EKeyYes
@@ -108,20 +109,21 @@ class Settings (dict):
 	"""Settings manager"""
 	
 	db = [
-		# id					description				default					min. s60_version	options (None => no dialog)
-		(CONF_VERSION,			'Version',				VERSION,				1,					None										),
-		(CONF_ENCODING,			'File encoding',		getdefaultencoding(),	1,					[unicode(enc) for enc in aliases.aliases]	),
-		(CONF_NEW_LINES,		'New lines',			'unix',					1,					['unix', 'windows']							),
-		(CONF_CASE_SENSITIVE,	'Case sensitive find',	'no',					1,					['yes', 'no']								),
-		(CONF_FONT,				'Font',					Text().font[0],			1,					available_fonts()							),
-		(CONF_FONT_SIZE,		'Font size',			15,						2,					int											),
-		(CONF_FONT_COLOUR,		'Font colour',			(0,0,0),				1,					None										),
-		(CONF_LINE_NUMBERS,		'Display line number',	'yes',					1,					['yes', 'no']								),
-		(CONF_LAST_DIR,			'Last used directory',	'\\',					1,					None										),
-		(CONF_HISTORY,			'History',				[],						1,					None										),
-		(CONF_HISTORY_SIZE,		'Max history size',		8,						1,					int											),
-		(CONF_SCREEN,			'Screen Size',			'normal',				1,					['large', 'normal', 'full']					),
-		(CONF_ORIENTATION,		'Screen orientation',	'automatic',			3,					['automatic', 'portrait', 'landscape']		),
+		# id				description		default			min. s60_version	options (None => no dialog)
+		(CONF_VERSION,			'Version',		VERSION,		1,			None						),
+		(CONF_ENCODING,			'File encoding',	getdefaultencoding(),	1,			[unicode(enc) for enc in aliases.aliases]	),
+		(CONF_NEW_LINES,		'New lines',		'unix',			1,			['unix', 'windows']				),
+		(CONF_CASE_SENSITIVE,		'Case sensitive find',	'no',			1,			['yes', 'no']					),
+		(CONF_FONT,			'Font',			Text().font[0],		1,			available_fonts()				),
+		(CONF_FONT_SIZE,		'Font size',		15,			2,			int						),
+		(CONF_FONT_COLOUR,		'Font colour',		(0,0,0),		1,			None						),
+		(CONF_FONT_ANTIALIAS,		'Font aliasing',	'yes',			3,			['yes', 'no']					),
+		(CONF_LINE_NUMBERS,		'Display line number',	'yes',			1,			['yes', 'no']					),
+		(CONF_LAST_DIR,			'Last used directory',	'\\',			1,			None						),
+		(CONF_HISTORY,			'History',		[],			1,			None						),
+		(CONF_HISTORY_SIZE,		'Max history size',	8,			1,			int						),
+		(CONF_SCREEN,			'Screen Size',		'normal',		1,			['large', 'normal', 'full']			),
+		(CONF_ORIENTATION,		'Screen orientation',	'automatic',		3,			['automatic', 'portrait', 'landscape']		),
 	]
 	saveRequired = False
 	
@@ -391,6 +393,7 @@ class Editor:
 		old_menu = app.menu
 		old_focus_handler = app.focus
 		app.screen = self.config[CONF_SCREEN]
+		app.orientation = self.config[CONF_ORIENTATION]
 		# create editor environment
 		self.text = Text()
 		self.path = None
@@ -502,11 +505,11 @@ class Editor:
 		def refresh():
 			cursor_position = self.text.get_pos()
 			text = self.text.get()
-			self.text.font = (unicode(self.config[CONF_FONT]), self.config[CONF_FONT_SIZE], FONT_ANTIALIAS)
+			self.text.font = (unicode(self.config[CONF_FONT]), self.config[CONF_FONT_SIZE], (self.config[CONF_FONT_ANTIALIAS] == 'yes') and FONT_ANTIALIAS)
 			self.text.color = self.config[CONF_FONT_COLOUR]
 			self.text.set(text)
 			self.text.set_pos(cursor_position)
-		self.titlebar.run_no_path('refresh', u'...busy...', refresh)
+		self.titlebar.run_no_path('refresh', u'[busy]', refresh)
 
 	def f_new(self, force=False):
 		"""start a new, blank document"""
@@ -540,14 +543,18 @@ class Editor:
 		previous_body = app.body
 		previous_menu = app.menu
 		previous_exit_key_handler = app.exit_key_handler
-		listbox = Listbox([(basename((unicode(file))), dirname(unicode(file))) for file in self.config[CONF_HISTORY]], select)
-		app.body = listbox
-		app.exit_key_handler = exit_key_handler
-		lock.wait()
-		# exit the editor
-		app.body = previous_body
-		app.menu = previous_menu
-		app.exit_key_handler = previous_exit_key_handler
+		list = [(basename((unicode(file))), dirname(unicode(file))) for file in self.config[CONF_HISTORY]]
+		if len(list) > 0:
+			listbox = Listbox(list, select)
+			app.body = listbox
+			app.exit_key_handler = exit_key_handler
+			lock.wait()
+			# exit the editor
+			app.body = previous_body
+			app.menu = previous_menu
+			app.exit_key_handler = previous_exit_key_handler
+		else:
+			note(u'No recent documents', 'info')
 			
 	def __open_document(self, path, read_from_disk=True):
 		"""Open a document by reading from disk, and showing "busy" status.
@@ -584,6 +591,8 @@ class Editor:
 				self.__document_lock = None
 		if path != None:
 			# add to recent list
+			if path in self.config[CONF_HISTORY]:
+				self.config[CONF_HISTORY].remove(path)
 			self.config[CONF_HISTORY] = ([path] + self.config[CONF_HISTORY])[:self.config[CONF_HISTORY_SIZE]]
 			self.config.save()
 			# show filename in titlebar until a different file is opened
