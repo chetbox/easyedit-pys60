@@ -108,22 +108,28 @@ class Titlebar (object):
 class Settings (dict):
 	"""Settings manager"""
 	
+	def set_screen_size(x):
+		app.screen = x
+	
+	def set_screen_orientation(x):
+		app.orientation = x
+	
 	db = [
-		# id				description		default			min. s60_version	options (None => no dialog)
-		(CONF_VERSION,			'Version',		VERSION,		1,			None						),
-		(CONF_ENCODING,			'File encoding',	getdefaultencoding(),	1,			[unicode(enc) for enc in aliases.aliases]	),
-		(CONF_NEW_LINES,		'New lines',		'unix',			1,			['unix', 'windows']				),
-		(CONF_CASE_SENSITIVE,		'Case sensitive find',	'no',			1,			['yes', 'no']					),
-		(CONF_FONT,			'Font',			Text().font[0],		1,			available_fonts()				),
-		(CONF_FONT_SIZE,		'Font size',		15,			2,			int						),
-		(CONF_FONT_COLOUR,		'Font colour',		(0,0,0),		1,			None						),
-		(CONF_FONT_ANTIALIAS,		'Font aliasing',	'yes',			3,			['yes', 'no']					),
-		(CONF_LINE_NUMBERS,		'Display line number',	'yes',			1,			['yes', 'no']					),
-		(CONF_LAST_DIR,			'Last used directory',	'\\',			1,			None						),
-		(CONF_HISTORY,			'History',		[],			1,			None						),
-		(CONF_HISTORY_SIZE,		'Max history size',	8,			1,			int						),
-		(CONF_SCREEN,			'Screen Size',		'normal',		1,			['large', 'normal', 'full']			),
-		(CONF_ORIENTATION,		'Screen orientation',	'automatic',		3,			['automatic', 'portrait', 'landscape']		),
+		# id				description		default			min. s60_version	options (None => no dialog)			immediate action f(option)
+		(CONF_VERSION,			'Version',		VERSION,		1,			None,						None				),
+		(CONF_ENCODING,			'File encoding',	getdefaultencoding(),	1,			[unicode(enc) for enc in aliases.aliases],	None				),
+		(CONF_NEW_LINES,		'New lines',		'unix',			1,			['unix', 'windows'],				None				),
+		(CONF_CASE_SENSITIVE,		'Case sensitive find',	'no',			1,			['yes', 'no'],					None				),
+		(CONF_FONT,			'Font',			Text().font[0],		1,			available_fonts(),				None				),
+		(CONF_FONT_SIZE,		'Font size',		15,			2,			int,						None				),
+		(CONF_FONT_COLOUR,		'Font colour',		(0,0,0),		1,			None,						None				),
+		(CONF_FONT_ANTIALIAS,		'Font aliasing',	'yes',			3,			['yes', 'no'],					None				),
+		(CONF_LINE_NUMBERS,		'Display line number',	'yes',			1,			['yes', 'no'],					None				),
+		(CONF_LAST_DIR,			'Last used directory',	'\\',			1,			None,						None				),
+		(CONF_HISTORY,			'History',		[],			1,			None,						None				),
+		(CONF_HISTORY_SIZE,		'Max history size',	8,			1,			int,						None				),
+		(CONF_SCREEN,			'Screen Size',		'normal',		1,			['large', 'normal', 'full'],			set_screen_size			),
+		(CONF_ORIENTATION,		'Screen orientation',	'automatic',		3,			['automatic', 'portrait', 'landscape'],		set_screen_orientation		),
 	]
 	saveRequired = False
 	
@@ -163,7 +169,7 @@ class Settings (dict):
 				print("Creating new config...")
 			textbox_font = Text().font	# not very nice, but it does what is required
 			# set current settings to these defaults
-			self.update(dict([(id, default) for (id,description,default,s60,options) in self.db]))
+			self.update(dict([(id, default) for (id,description,default,s60,options,action) in self.db]))
 			self.save()
 
 	def save(self):
@@ -185,7 +191,7 @@ class Settings (dict):
 		"""Update the Settings panel with the current settings"""
 		if self.settings_list:
 			slist = [(unicode(description), unicode(self[id]))
-						for (id,description,default,s60,options) in self.db
+						for (id,description,default,s60,options,action) in self.db
 						if s60_version_info[0] >= s60
 							and options != None
 					]
@@ -197,7 +203,45 @@ class Settings (dict):
 	def show_ui(self, callback=None):
 		"""Create and show a settings editor"""
 		def show():
-			self.settings_list = Listbox([(u'dummy',u'item')], lambda: self._modify(self.settings_list.current()))
+			def _modify(selected):
+				"""edit a setting"""
+				(id, description, options, action) = \
+					[(id, description, options, action)
+						for (id,description,default,s60,options,action) in self.db
+						if s60_version_info[0] >= s60
+							and options != None
+					][selected]
+				# save a copy of current config
+				oldconfig = self.copy()
+				# display options
+				selection = None
+				if options.__class__ == type:
+					if options == int:
+						selection = query(unicode(description), 'number', self[id])
+					if selection != None:
+						self[id] = selection
+				elif options.__class__ == list:
+					if len(options) <= 4:
+						selection = popup_menu([unicode(option).capitalize() for option in options], unicode(description))
+					else:
+						options = [unicode(option) for option in options]
+						options.sort()
+						selection = selection_list(choices=options, search_field=True)
+					if selection != None:
+						self[id] = str(options[selection])
+				elif DEBUG:
+					print("Settings : Unsupported type " + str(options.__class__))
+				self.refresh_ui()
+				# save if any changes have been made
+				if oldconfig != self:
+					self.save()
+				# run any immediate action if one has been defined
+				if action != None:
+					try:
+						action(self[id])
+					except:
+						note(u'Error setting ' + unicode(description), 'error')
+			self.settings_list = Listbox([(u'dummy',u'item')], lambda: _modify(self.settings_list.current()))
 			self.refresh_ui()
 			# save previous application state
 			previous_body = app.body
@@ -205,10 +249,10 @@ class Settings (dict):
 			previous_exit_key_handler = app.exit_key_handler
 			# show the settings editor
 			app.body = self.settings_list
-			self.settings_list.bind(EKeyEdit, lambda: self._modify(self.settings_list.current()))
+			self.settings_list.bind(EKeyEdit, lambda: _modify(self.settings_list.current()))
 			self.settings_list.bind(EKeyYes, self.exit.signal)
 			app.menu =[
-				(u'Modify', lambda: self._modify(self.settings_list.current())),
+				(u'Modify', lambda: _modify(self.settings_list.current())),
 				(u'Close', self.exit.signal),
 			]
 			app.exit_key_handler = self.exit.signal
@@ -228,38 +272,6 @@ class Settings (dict):
 			callback()
 		return retval
 
-	def _modify(self, selection):
-		"""edit a setting"""
-		(id, description, options) = \
-			[(id, description, options)
-				for (id,description,default,s60,options) in self.db
-				if s60_version_info[0] >= s60
-					and options != None
-			][selection]
-		# save a copy of current config
-		oldconfig = self.copy()
-		# display options
-		selection = None
-		if options.__class__ == type:
-			if options == int:
-				selection = query(unicode(description), 'number', self[id])
-			if selection != None:
-				self[id] = selection
-		elif options.__class__ == list:
-			if len(options) <= 4:
-				selection = popup_menu([unicode(option).capitalize() for option in options], unicode(description))
-			else:
-				options = [unicode(option) for option in options]
-				options.sort()
-				selection = selection_list(choices=options, search_field=True)
-			if selection != None:
-				self[id] = str(options[selection])
-		elif DEBUG:
-			print("Settings : Unsupported type " + str(options.__class__))
-		self.refresh_ui()
-		# save if any changes have been made
-		if oldconfig != self:
-			self.save()
 
 
 class Filebrowser (Directory_iter):
