@@ -123,7 +123,7 @@ class Settings (dict):
 		(CONF_FONT,			'Font',			Text().font[0],		1,			available_fonts(),				None				),
 		(CONF_FONT_SIZE,		'Font size',		15,			2,			int,						None				),
 		(CONF_FONT_COLOUR,		'Font colour',		(0,0,0),		1,			None,						None				),
-		(CONF_FONT_ANTIALIAS,		'Font aliasing',	'yes',			3,			['yes', 'no'],					None				),
+		(CONF_FONT_ANTIALIAS,		'Font aliasing',	'no',			2,			['yes', 'no'],					None				),
 		(CONF_LINE_NUMBERS,		'Display line number',	'yes',			1,			['yes', 'no'],					None				),
 		(CONF_LAST_DIR,			'Last used directory',	'\\',			1,			None,						None				),
 		(CONF_HISTORY,			'History',		[],			1,			None,						None				),
