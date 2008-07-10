@@ -159,15 +159,11 @@ class Settings (dict):
 				if DEBUG:
 					print("Cannot read config file " + self.path)
 				note(u'Error reading settings', 'error')
-				if query(u'Reset settings?', 'query'):
-					self.keep_config = False
-				else:
-					self.keep_config = True
+				self.keep_config = not(query(u'Reset settings?', 'query'))
 				existing_conf = False
 		if not(existing_conf):
 			if DEBUG:
 				print("Creating new config...")
-			textbox_font = Text().font	# not very nice, but it does what is required
 			# set current settings to these defaults
 			self.update(dict([(id, default) for (id,description,default,s60,options,action) in self.db]))
 			self.save()
@@ -182,6 +178,7 @@ class Settings (dict):
 				f.write(repr(self))
 				f.close()
 				self.saveRequired = False
+				self.keep_config = False
 			except:
 				note(u'Error saving config', 'error')
 		elif DEBUG:
@@ -521,7 +518,7 @@ class Editor:
 			self.text.color = self.config[CONF_FONT_COLOUR]
 			self.text.set(text)
 			self.text.set_pos(cursor_position)
-		self.titlebar.run_no_path('refresh', u'[busy]', refresh)
+		self.titlebar.run_no_path('refresh', BUSY_MESSAGE, refresh)
 
 	def f_new(self, force=False):
 		"""start a new, blank document"""
