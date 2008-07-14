@@ -21,7 +21,7 @@ Released under GPLv2 (See COPYING.txt)
 
 
 # Settings
-VERSION=(2, 0, 4)
+VERSION=(2, 0, 5)
 DEBUG = True
 CONFFILE='C:\\SYSTEM\\Data\\EasyEdit.conf.dev'
 BUSY_MESSAGE = u'[busy]'
@@ -45,8 +45,8 @@ CONF_CASE_SENSITIVE	= 'case-sensitive search'
 from appuifw import *
 from key_codes import EKeyLeftArrow, EKeyRightArrow, EKeyBackspace, EKey1, EKey2, EKeyEdit, EKeyYes
 from e32 import Ao_lock, ao_yield, ao_sleep, s60_version_info, drive_list
-from os import rename
-from os.path import exists, isfile, isdir, join, basename, dirname
+from os import rename, mkdir, remove, rmdir, listdir
+from os.path import exists, isfile, isdir, join, basename, dirname, normpath
 from sys import getdefaultencoding, exc_info
 from encodings import aliases
 from graphics import FONT_ANTIALIAS
@@ -68,25 +68,21 @@ class Titlebar (object):
 	
 	def __init__(self, id='default', default=app.title):
 		self.__title = unicode(default)
-		self.running = 0
+		self.running = False
 		self.current_id = id
 	
 	def temporary(self, message):
+		"""set title but do not remember it when changed"""
 		app.title = unicode(message)
 		ao_yield()
 	
 	def refresh(self):
+		"""set the titlebar to the current stored value"""
 		app.title = self.title
 		ao_yield()
 	
-	def run(self, id, message, function, separator=u' > '):
-		return self._run(False, id, message, function)
-	
-	def run_no_path(self, id, message, function, separator=u' > '):
-		return self._run(True, id, message, function)
-	
-	def _run(self, override, id, message, function, separator=u' > '):
-		"""Execute a function while displaying a message on the Titlebar"""
+	def __run(self, override, id, message, function, separator=u' > '):
+		"""Execute a function while displaying/appending a message on the Titlebar"""
 		oldtitle = self.title
 		oldid = self.current_id
 		self.currentid = id
@@ -100,7 +96,16 @@ class Titlebar (object):
 		ao_yield()
 		return retval
 	
+	def run(self, id, message, function, separator=u' > '):
+		"""Execute a function while appending a message to the Titlebar"""
+		return self.__run(False, id, message, function)
+	
+	def run_no_path(self, id, message, function, separator=u' > '):
+		"""Execute a function while displaying a message on the Titlebar"""
+		return self.__run(True, id, message, function)
+	
 	def prepend(self, id, message):
+		"""temporarily prepends a string to the current titlebat text"""
 		if self.current_id == id:
 			app.title = unicode(message) + self.title
 			ao_yield()
@@ -109,9 +114,11 @@ class Settings (dict):
 	"""Settings manager"""
 	
 	def set_screen_size(x):
+		"""action when a new screen size is selected"""
 		app.screen = x
 	
 	def set_screen_orientation(x):
+		"""action when a new screen orientation is selected"""
 		app.orientation = x
 	
 	db = [
@@ -123,7 +130,7 @@ class Settings (dict):
 		(CONF_FONT,			'Font',			Text().font[0],		1,			available_fonts(),				None				),
 		(CONF_FONT_SIZE,		'Font size',		15,			2,			int,						None				),
 		(CONF_FONT_COLOUR,		'Font colour',		(0,0,0),		1,			None,						None				),
-		(CONF_FONT_ANTIALIAS,		'Font aliasing',	'no',			2,			['yes', 'no'],					None				),
+		(CONF_FONT_ANTIALIAS,		'Font anti-aliasing',	'no',			2,			['yes', 'no'],					None				),
 		(CONF_LINE_NUMBERS,		'Display line number',	'yes',			1,			['yes', 'no'],					None				),
 		(CONF_LAST_DIR,			'Last used directory',	'\\',			1,			None,						None				),
 		(CONF_HISTORY,			'History',		[],			1,			None,						None				),
@@ -182,7 +189,7 @@ class Settings (dict):
 			except:
 				note(u'Error saving config', 'error')
 		elif DEBUG:
-			print("Config error on startup, not saved")
+			print("Config not saved")
 
 	def refresh_ui(self):
 		"""Update the Settings panel with the current settings"""
@@ -202,8 +209,8 @@ class Settings (dict):
 		def show():
 			def _modify(selected):
 				"""edit a setting"""
-				(id, description, options, action) = \
-					[(id, description, options, action)
+				(id, description, options, action, supported_s60_version) = \
+					[(id, description, options, action, s60)
 						for (id,description,default,s60,options,action) in self.db
 						if s60_version_info[0] >= s60
 							and options != None
@@ -233,7 +240,7 @@ class Settings (dict):
 				if oldconfig != self:
 					self.save()
 				# run any immediate action if one has been defined
-				if action != None:
+				if action != None and s60_version_info[0] >= supported_s60_version:
 					try:
 						action(self[id])
 					except:
@@ -270,15 +277,18 @@ class Settings (dict):
 		return retval
 
 
-
 class Filebrowser (Directory_iter):
 	def __init__(self, initial_dir='\\', titlebar=Titlebar('filebrowser')):
 		self.drive_list = drive_list()
 		Directory_iter.__init__(self, self.drive_list)
+		# set initial directory if one has been specified
 		if initial_dir != '\\':
 			if isdir(initial_dir):
 				self.path = initial_dir
-				self.at_root = 0
+				self.at_root = False
+				# go up a directory if directory current is empty - listbox cannot display empty lists!
+				if len(self.list_repr()) == 0:
+					self.pop()
 			elif DEBUG:
 				print("Filebrowser : Directory does not exist " + str(initial_dir))
 		self.lock = Ao_lock()
@@ -293,36 +303,44 @@ class Filebrowser (Directory_iter):
 			
 	abs_path = property(fget=__getSelection)
 		
-	def refresh_ui(self):
+	def refresh_ui(self, current=0):
+		"""refresh the current file list
+		current sets the current selection"""
 		dir_listing = self.list_repr()
 		if len(dir_listing) > 0:
 			self.titlebar.temporary(self.path)
-			self.listbox.set_list(dir_listing)
+			self.listbox.set_list(dir_listing, current)
 			ao_yield()
 		else:
 			self.pop()
 			note(u'Empty directory', 'info')
 	
 	def show_ui(self, allow_directory=False):
+		"""show the file browser - returns the path selected
+		allow_directory = True allows a directory to be selected"""
 		def show_ui():
 			self.return_path = None
 			def descend():
+				"""open the currently selected directory"""
 				selection = self.listbox.current()
 				path = self.entry(selection)
 				if self.at_root or isdir(path):
 					self.add(selection)
 					self.refresh_ui()
 			def ascend():
+				"""go up the directory hierarchy"""
 				if self.path != '\\':
 					self.pop()
 					self.refresh_ui()
 			def select():
+				"""select the current file or open the directory"""
 				if allow_directory or isfile(self.abs_path):
 					self.return_path = self.abs_path
 					self.lock.signal()
 				else:
 					descend()
 			def rename_file():
+				"""Rename the currently selected file"""
 				path = self.entry(self.listbox.current())
 				filename = basename(path)
 				new_name = query(u'Rename ' + filename, 'text', unicode(filename))
@@ -332,8 +350,48 @@ class Filebrowser (Directory_iter):
 						rename(path, new_path)
 						note(u'File renamed', 'info')
 					except:
-						note(u'Error renaming file!', 'error')
+						note(u'Error renaming file', 'error')
 					self.refresh_ui()
+			def create_directory():
+				"""create a new directory at the current location"""
+				if self.at_root:
+					note(u'Cannot create directory here', 'info')
+				else:
+					dir_name = query(u'Directory name', 'text', u'New directory')
+					if dir_name != None:
+						try:
+							mkdir(join(self.path, str(dir_name)))
+						except:
+							note(u'Error creating directory', 'error')
+						self.refresh_ui()
+			def delete_file():
+				path = self.entry(self.listbox.current())
+				change_made = False
+				if isfile(path):
+					if query(u'Delete ' + unicode(basename(path)) + u'?', 'query'):
+						try:
+							remove(path)
+							change_made = True
+						except:
+							note(u'Error delecting file', 'error')
+				elif isdir(path):
+					if len(listdir(path)) == 0:
+						try:
+							rmdir(normpath(path))
+							change_made = True
+						except:
+							note(u'Error deleting directory', 'error')
+					else:
+						note(u'Directory is not empty', 'info')
+				if change_made:
+					self.refresh_ui()
+			def os_open():
+				"""open the currently selected file with the default application specified by the OS"""
+				if isfile(self.entry(self.listbox.current())):
+					try:
+						Content_handler().open_standalone(self.entry(self.listbox.current()))
+					except:
+						note(u'Error opening file', 'error')
 			# save ui state
 			body_previous = app.body
 			menu_previous = app.menu
@@ -343,15 +401,18 @@ class Filebrowser (Directory_iter):
 				(u' []   Select', select),
 				(u' <-   Parent directory', ascend),
 				(u' ->   Enter directory', descend),
-			#	(u' 1    New directory', self._mkdir),
-			#	(u' 2    Execute file', self._run),
-				(u'ABC   Rename', rename_file),
-			#	(u' C    Delete', self._delete),
+				(u' 1    New directory', create_directory),
+				(u' 2    Open with OS', os_open),
+				(u'ABC  Rename', rename_file),
+				(u' C    Delete', delete_file),
 			]
 			self.listbox = Listbox([(u'dummy', u'item')], select)
-			self.listbox.bind(EKeyRightArrow, descend)
 			self.listbox.bind(EKeyLeftArrow, ascend)
+			self.listbox.bind(EKeyRightArrow, descend)
+			self.listbox.bind(EKey1, create_directory)
+			self.listbox.bind(EKey2, os_open)
 			self.listbox.bind(EKeyEdit, rename_file)
+			self.listbox.bind(EKeyBackspace, delete_file)
 			self.refresh_ui()
 			app.body = self.listbox
 			app.exit_key_handler = self.lock.signal
@@ -379,6 +440,52 @@ class Editor:
 		self.hasFocus = False
 		self.filebrowser = None
 		self.__document_lock = None
+
+	def __open_document(self, path, read_from_disk=True):
+		"""Open a document by reading from disk, and showing "busy" status.
+		Locks until called again"""
+		oldpath = self.path
+		self.path = path
+		if self.__document_lock != None:
+			self.__document_lock.signal()
+		def open_document():
+			error = False
+			if read_from_disk:
+				# show "busy" message
+				self.titlebar.prepend('document', BUSY_MESSAGE + u' ')
+				try:
+					# read file from disk
+					f = open(path)
+					text = f.read()
+					f.close()
+					text = self.decode(text)
+					# show file in editor
+					self.text.clear()
+					self.refresh()
+					self.text.set(text)
+					self.text.set_pos(0)
+				except:
+					note(u'Error opening file', 'error')
+					# ask user if they wish to remove it from the recent document list
+					if query(u'Remove from Recent Documents?', 'query'):
+						self.config[CONF_HISTORY].remove(path)
+						self.config.save()
+					# fallback to the previous document if there was an error
+					self.__open_document(oldpath, read_from_disk=False)
+					error = True
+			if not(error):
+				if self.__document_lock == None:
+					self.__document_lock = Ao_lock()
+				#self.__document_lock.wait()	# seems to block UI! =(
+				self.__document_lock = None
+		if path != None:
+			# add to recent list
+			if path in self.config[CONF_HISTORY]:
+				self.config[CONF_HISTORY].remove(path)
+			self.config[CONF_HISTORY] = ([path] + self.config[CONF_HISTORY])[:self.config[CONF_HISTORY_SIZE]]
+			self.config.save()
+			# show filename in titlebar until a different file is opened
+			self.titlebar.run('document', unicode(basename(path)), open_document)
 
 	def run(self):
 		"""Start EasyEdit"""
@@ -450,8 +557,11 @@ class Editor:
 						ao_yield()
 					ao_sleep(0.2)	# refresh rate of line numbers (seconds)
 				else:
+					# lock to stop busy waiting when app is not in focus
 					focusLock.wait()
+			# intent to close application has now been expressed
 			quit_app = self.save_query()
+		# application should now be closing
 		# unlock any pending locks
 		if self.__document_lock != None:
 			self.__document_lock.signal()
@@ -484,9 +594,11 @@ class Editor:
 		return decoded_text
 	
 	def exists(self):
+		"""handy function that checks if the open document exists on disk (may have different contents)"""
 		return (self.path != None) and (len(self.path) > 0) and isfile(self.path)
 		
 	def save_query(self):
+		"""check if file needs saving and prompt user if necessary - returns user reponse"""
 		save = False
 		save_required = True
 		current_text = self.text.get()
@@ -514,7 +626,11 @@ class Editor:
 		def refresh():
 			cursor_position = self.text.get_pos()
 			text = self.text.get()
-			self.text.font = (unicode(self.config[CONF_FONT]), self.config[CONF_FONT_SIZE], (self.config[CONF_FONT_ANTIALIAS] == 'yes') and FONT_ANTIALIAS)
+			self.text.font = (
+				unicode(self.config[CONF_FONT]),
+				self.config[CONF_FONT_SIZE],
+				(self.config[CONF_FONT_ANTIALIAS] == 'yes') and FONT_ANTIALIAS
+			)
 			self.text.color = self.config[CONF_FONT_COLOUR]
 			self.text.set(text)
 			self.text.set_pos(cursor_position)
@@ -528,6 +644,14 @@ class Editor:
 			#self.path = None
 			self.__open_document(None)
 	
+	def __save_last_dir(self, path):
+		"""save the location of the last viewed directory in self.config"""
+		if isdir(path):
+			self.config[CONF_LAST_DIR] = normpath(path)
+		else:
+			self.config[CONF_LAST_DIR] = dirname(normpath(path))
+		self.config.save()
+
 	def f_open(self):
 		"""open an existing document"""
 		# show file selector
@@ -536,27 +660,43 @@ class Editor:
 			self.filebrowser = Filebrowser(self.config[CONF_LAST_DIR], self.titlebar)
 		path = self.filebrowser.show_ui()
 		# show "save?" dialog if necesary and open document
-		if path != None and self.save_query() != None:
-			# open the document
-			self.__open_document(path)
+		if path != None:
+			self.__save_last_dir(path)
+			if self.save_query() != None:
+				# open the document
+				self.__open_document(path)
 	
 	def f_open_recent(self):
+		"""select a file to open from the recent document list"""
 		lock = Ao_lock()
 		listbox = None
 		def select():
 			self.__open_document(self.config[CONF_HISTORY][listbox.current()])
 			lock.signal()
+		def current_list():
+			return [(basename((unicode(file))), dirname(unicode(file))) for file in self.config[CONF_HISTORY]]
+		def remove_recent():
+			if query(u'Remove from recent documents?', 'query'):
+				self.config[CONF_HISTORY].remove(self.config[CONF_HISTORY][listbox.current()])
+				self.config.save()
+				new_list = current_list()
+				if len(new_list) > 0:
+					listbox.set_list(current_list())
+				else:
+					note(u'No more recent documents', 'info')
+					lock.signal()
 		def exit_key_handler():
 			lock.signal()
 		# save previous application state
 		previous_body = app.body
 		previous_menu = app.menu
 		previous_exit_key_handler = app.exit_key_handler
-		list = [(basename((unicode(file))), dirname(unicode(file))) for file in self.config[CONF_HISTORY]]
+		list = current_list()
 		if len(list) > 0:
 			listbox = Listbox(list, select)
 			app.body = listbox
 			app.exit_key_handler = exit_key_handler
+			listbox.bind(EKeyBackspace, remove_recent)
 			lock.wait()
 			# exit the editor
 			app.body = previous_body
@@ -565,51 +705,9 @@ class Editor:
 		else:
 			note(u'No recent documents', 'info')
 			
-	def __open_document(self, path, read_from_disk=True):
-		"""Open a document by reading from disk, and showing "busy" status.
-		Locks until called again"""
-		oldpath = self.path
-		self.path = path
-		if self.__document_lock != None:
-			self.__document_lock.signal()
-		def open_document():
-			error = False
-			if read_from_disk:
-				# show "busy" message
-				self.titlebar.prepend('document', BUSY_MESSAGE + u' ')
-				try:
-					# read file from disk
-					f = open(path)
-					text = f.read()
-					f.close()
-					text = self.decode(text)
-					# show file in editor
-					self.text.clear()
-					self.refresh()
-					self.text.set(text)
-					self.text.set_pos(0)
-				except:
-					note(u'Error opening file', 'error')
-					# fallback to the previous document if there was an error
-					self.__open_document(oldpath, read_from_disk=False)
-					error = True
-			if not(error):
-				if self.__document_lock == None:
-					self.__document_lock = Ao_lock()
-				#self.__document_lock.wait()	# seems to block UI! =(
-				self.__document_lock = None
-		if path != None:
-			# add to recent list
-			if path in self.config[CONF_HISTORY]:
-				self.config[CONF_HISTORY].remove(path)
-			self.config[CONF_HISTORY] = ([path] + self.config[CONF_HISTORY])[:self.config[CONF_HISTORY_SIZE]]
-			self.config.save()
-			# show filename in titlebar until a different file is opened
-			self.titlebar.run('document', unicode(basename(path)), open_document)
-
-	def f_save(self):
-		"""save the current file"""
-		if self.exists():
+	def f_save(self, force=False):
+		"""save the current file - force skips exist check"""
+		if force or self.exists():
 			# show "busy" message
 			self.titlebar.prepend('document', BUSY_MESSAGE + u' ')
 			try:
@@ -633,18 +731,34 @@ class Editor:
 			self.filebrowser = Filebrowser(self.config[CONF_LAST_DIR], self.titlebar)
 		path = self.filebrowser.show_ui(allow_directory=True)
 		if path != None:
-			# assume path selected is a directory
-			suggested_filename = u'untitled.txt'
-			new_file_location = path
-			# check if the file selected that is a path
+			# assume a directory has been selected -  suggest a filename in the current directory
+			new_file_location = dirname(path)
+			containing_dir = basename(path)
+			# <hack>
+			if len(new_file_location) == 2:	# if new_file_location is just a drive letter (top-level)
+				new_file_location += '\\' # append a \ 
+			# </hack>
+			suggested_filename = join(containing_dir, 'untitled.txt')
+			# if a file is selected update the suggested name with its name
 			if isfile(path):
-				suggested_filename = unicode(basename(dirname(path))) + u'\\' + unicode(basename(path))
-				new_file_location = dirname(dirname(path))
-			new_filename = query(unicode(new_file_location), 'text', suggested_filename)
+				current_filename = containing_dir	# if a dir was not selected containing_dir is the filename
+				containing_dir = basename(new_file_location)
+				new_file_location = dirname(new_file_location)
+				suggested_filename = join(containing_dir, current_filename)
+			new_filename = query(unicode(new_file_location), 'text', unicode(suggested_filename))
 			if new_filename != None:
 				self.path = join(new_file_location, new_filename)
-				note(unicode(self.path))
-				#f_save()
+				self.__save_last_dir(self.path)
+				# check if file already exists and ask if it should be replaced
+				save_possible = False
+				if isfile(self.path):
+					save_possible = query(u'Overwite file?', 'query')
+				elif isdir(self.path):
+					note(u'Not saved: A directory exists with that name', 'info')
+				else:
+					save_possible = True
+				if save_possible:
+					self.f_save(force=True)	# force prevents another call to f_save_as
 
 
 # run the editor!
