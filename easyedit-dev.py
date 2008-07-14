@@ -734,7 +734,7 @@ class Editor:
 			# assume a directory has been selected -  suggest a filename in the current directory
 			new_file_location = dirname(path)
 			containing_dir = basename(path)
-			# <hack>
+			# <hack reason="top-level paths (drives) need to have a \ appended because join will not add it">
 			if len(new_file_location) == 2:	# if new_file_location is just a drive letter (top-level)
 				new_file_location += '\\' # append a \ 
 			# </hack>
