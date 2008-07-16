@@ -26,6 +26,16 @@ DEBUG = False
 CONFFILE='C:\\SYSTEM\\Data\\EasyEdit.conf.dev'
 BUSY_MESSAGE = u'[busy]'
 
+from appuifw import *
+from key_codes import EKeyLeftArrow, EKeyRightArrow, EKeyBackspace, EKey1, EKey2, EKeyEdit, EKeyYes
+from e32 import Ao_lock, ao_yield, ao_sleep, s60_version_info, drive_list
+from os import rename, mkdir, remove, rmdir, listdir
+from os.path import exists, isfile, isdir, join, basename, dirname, normpath
+from sys import getdefaultencoding, exc_info
+from encodings import aliases
+from graphics import FONT_ANTIALIAS
+from dir_iter import Directory_iter
+
 # configuration file keys
 CONF_VERSION		= 'version'
 CONF_SCREEN		= 'screen size'
@@ -42,15 +52,23 @@ CONF_NEW_LINES		= 'new lines'
 CONF_LINE_NUMBERS	= 'line numbers'
 CONF_CASE_SENSITIVE	= 'case-sensitive search'
 
-from appuifw import *
-from key_codes import EKeyLeftArrow, EKeyRightArrow, EKeyBackspace, EKey1, EKey2, EKeyEdit, EKeyYes
-from e32 import Ao_lock, ao_yield, ao_sleep, s60_version_info, drive_list
-from os import rename, mkdir, remove, rmdir, listdir
-from os.path import exists, isfile, isdir, join, basename, dirname, normpath
-from sys import getdefaultencoding, exc_info
-from encodings import aliases
-from graphics import FONT_ANTIALIAS
-from dir_iter import Directory_iter
+CONF_DB = [
+	# id				description		default			min. s60_version	options (None => no dialog)			(a,'b') => a.b = option
+	(CONF_VERSION,			'Version',		VERSION,		1,			None,						None				),
+	(CONF_ENCODING,			'File encoding',	getdefaultencoding(),	1,			[unicode(enc) for enc in aliases.aliases],	None				),
+	(CONF_NEW_LINES,		'New lines',		'unix',			1,			['unix', 'windows'],				None				),
+	(CONF_CASE_SENSITIVE,		'Case sensitive find',	'no',			1,			['yes', 'no'],					None				),
+	(CONF_FONT,			'Font',			Text().font[0],		1,			available_fonts(),				None				),
+	(CONF_FONT_SIZE,		'Font size',		15,			2,			int,						None				),
+	(CONF_FONT_COLOUR,		'Font colour',		(0,0,0),		1,			None,						None				),
+	(CONF_FONT_ANTIALIAS,		'Font anti-aliasing',	'no',			2,			['yes', 'no'],					None				),
+	(CONF_LINE_NUMBERS,		'Display line number',	'yes',			1,			['yes', 'no'],					None				),
+	(CONF_LAST_DIR,			'Last used directory',	'\\',			1,			None,						None				),
+	(CONF_HISTORY,			'History',		[],			1,			None,						None				),
+	(CONF_HISTORY_SIZE,		'Max history size',	8,			1,			int,						None				),
+	(CONF_SCREEN,			'Screen Size',		'normal',		1,			['large', 'normal', 'full'],			(app, 'screen')			),
+	(CONF_ORIENTATION,		'Screen orientation',	'automatic',		3,			['automatic', 'portrait', 'landscape'],		(app, 'orientation')		),
+]
 
 
 class Titlebar (object):
@@ -113,43 +131,21 @@ class Titlebar (object):
 class Settings (dict):
 	"""Settings manager"""
 	
-	def set_screen_size(x):
-		"""action when a new screen size is selected"""
-		app.screen = x
-	
-	def set_screen_orientation(x):
-		"""action when a new screen orientation is selected"""
-		app.orientation = x
-	
-	db = [
-		# id				description		default			min. s60_version	options (None => no dialog)			immediate action f(option)
-		(CONF_VERSION,			'Version',		VERSION,		1,			None,						None				),
-		(CONF_ENCODING,			'File encoding',	getdefaultencoding(),	1,			[unicode(enc) for enc in aliases.aliases],	None				),
-		(CONF_NEW_LINES,		'New lines',		'unix',			1,			['unix', 'windows'],				None				),
-		(CONF_CASE_SENSITIVE,		'Case sensitive find',	'no',			1,			['yes', 'no'],					None				),
-		(CONF_FONT,			'Font',			Text().font[0],		1,			available_fonts(),				None				),
-		(CONF_FONT_SIZE,		'Font size',		15,			2,			int,						None				),
-		(CONF_FONT_COLOUR,		'Font colour',		(0,0,0),		1,			None,						None				),
-		(CONF_FONT_ANTIALIAS,		'Font anti-aliasing',	'no',			2,			['yes', 'no'],					None				),
-		(CONF_LINE_NUMBERS,		'Display line number',	'yes',			1,			['yes', 'no'],					None				),
-		(CONF_LAST_DIR,			'Last used directory',	'\\',			1,			None,						None				),
-		(CONF_HISTORY,			'History',		[],			1,			None,						None				),
-		(CONF_HISTORY_SIZE,		'Max history size',	8,			1,			int,						None				),
-		(CONF_SCREEN,			'Screen Size',		'normal',		1,			['large', 'normal', 'full'],			set_screen_size			),
-		(CONF_ORIENTATION,		'Screen orientation',	'automatic',		3,			['automatic', 'portrait', 'landscape'],		set_screen_orientation		),
-	]
 	saveRequired = False
+	db = None
+	path = None
+	exit = Ao_lock()
 	
 	def __setitem__(self, key, value):
 		"""equivalent to dict.__setitem__ but flags saveRequired"""
 		self.saveRequired = True
 		dict.__setitem__(self, key, value)
 
-	def __init__(self, path, titlebar=Titlebar('settings')):
+	def __init__(self, db, path, titlebar=Titlebar('settings')):
 		dict.__init__(self)
 		self.titlebar = titlebar
 		self.path = path
-		self.exit = Ao_lock()
+		self.db = db
 		# create a new configuration if one does not exist
 		existing_conf = isfile(self.path)
 		self.keep_config = False
@@ -242,7 +238,7 @@ class Settings (dict):
 				# run any immediate action if one has been defined
 				if action != None and s60_version_info[0] >= supported_s60_version:
 					try:
-						action(self[id])
+						setattr(action[0], action[1], self[id])
 					except:
 						note(u'Error setting ' + unicode(description), 'error')
 			self.settings_list = Listbox([(u'dummy',u'item')], lambda: _modify(self.settings_list.current()))
@@ -499,7 +495,7 @@ class Editor:
 				focusLock.signal()
 		# read settings
 		self.titlebar = Titlebar('document', u'EasyEdit')
-		self.config = Settings(CONFFILE, self.titlebar)
+		self.config = Settings(CONF_DB, CONFFILE, self.titlebar)
 		self.hasFocus = True
 		# save current state
 		old_title = app.title
