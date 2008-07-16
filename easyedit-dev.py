@@ -128,6 +128,7 @@ class Titlebar (object):
 			app.title = unicode(message) + self.title
 			ao_yield()
 
+
 class Settings (dict):
 	"""Settings manager"""
 	
@@ -299,17 +300,20 @@ class Filebrowser (Directory_iter):
 			
 	abs_path = property(fget=__getSelection)
 		
-	def refresh_ui(self, current=0):
+	def refresh_ui(self, current=None):
 		"""refresh the current file list
 		current sets the current selection"""
 		dir_listing = self.list_repr()
+		if current == None:
+			current = self.listbox.current()
 		if len(dir_listing) > 0:
 			self.titlebar.temporary(self.path)
 			self.listbox.set_list(dir_listing, current)
 			ao_yield()
 		else:
-			self.pop()
 			note(u'Empty directory', 'info')
+			self.pop()
+			self.refresh_ui(current=0)
 	
 	def show_ui(self, allow_directory=False):
 		"""show the file browser - returns the path selected
@@ -362,25 +366,25 @@ class Filebrowser (Directory_iter):
 						self.refresh_ui()
 			def delete_file():
 				path = self.entry(self.listbox.current())
-				change_made = False
-				if isfile(path):
-					if query(u'Delete ' + unicode(basename(path)) + u'?', 'query'):
+				if query(u'Delete ' + unicode(basename(path)) + u'?', 'query'):
+					change_made = False
+					if isfile(path):
 						try:
 							remove(path)
 							change_made = True
 						except:
 							note(u'Error delecting file', 'error')
-				elif isdir(path):
-					if len(listdir(path)) == 0:
-						try:
-							rmdir(normpath(path))
-							change_made = True
-						except:
-							note(u'Error deleting directory', 'error')
-					else:
-						note(u'Directory is not empty', 'info')
-				if change_made:
-					self.refresh_ui()
+					elif isdir(path):
+						if len(listdir(path)) == 0:
+							try:
+								rmdir(normpath(path))
+								change_made = True
+							except:
+								note(u'Error deleting directory', 'error')
+						else:
+							note(u'Not deleted: Directory is not empty', 'info')
+					if change_made:
+						self.refresh_ui()
 			def os_open():
 				"""open the currently selected file with the default application specified by the OS"""
 				if isfile(self.entry(self.listbox.current())):
