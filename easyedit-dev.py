@@ -22,7 +22,7 @@ Released under GPLv2 (See COPYING.txt)
 
 # Settings
 VERSION=(2, 0, 5)
-DEBUG = True
+DEBUG = False
 CONFFILE='C:\\SYSTEM\\Data\\EasyEdit.conf.dev'
 BUSY_MESSAGE = u'[busy]'
 
