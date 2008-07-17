@@ -474,18 +474,17 @@ class Editor:
 					self.__open_document(oldpath, read_from_disk=False)
 					error = True
 			if not(error):
-				if self.__document_lock == None:
-					self.__document_lock = Ao_lock()
+				self.__document_lock = Ao_lock()
 				#self.__document_lock.wait()	# seems to block UI! =(
 				self.__document_lock = None
 		if path != None:
 			# add to recent list
-			if path in self.config[CONF_HISTORY]:
+			if normpath(path) in self.config[CONF_HISTORY]:
 				self.config[CONF_HISTORY].remove(path)
-			self.config[CONF_HISTORY] = ([path] + self.config[CONF_HISTORY])[:self.config[CONF_HISTORY_SIZE]]
+			self.config[CONF_HISTORY] = ([normpath(path)] + self.config[CONF_HISTORY])[:self.config[CONF_HISTORY_SIZE]]
 			self.config.save()
 			# show filename in titlebar until a different file is opened
-			self.titlebar.run('document', unicode(basename(path)), open_document)
+			self.titlebar.run('document', unicode(basename(normpath(path))), open_document)
 
 	def run(self):
 		"""Start EasyEdit"""
@@ -494,9 +493,11 @@ class Editor:
 			self.running = False
 		focusLock = Ao_lock()
 		def focusHandler(f):
-			self.hasFocus = f
-			if f:
+			if f and not(self.hasFocus):	# if we have just got focus
+				self.hasFocus = True
 				focusLock.signal()
+			if not(f) and self.hasFocus:	# if we just lost focus
+				self.hasFocus = False
 		def save_query():
 			"""check if file needs saving and prompt user if necessary - returns user reponse"""
 			save = False
@@ -544,8 +545,8 @@ class Editor:
 			lock = Ao_lock()
 			listbox = None
 			def select():
-				self.__open_document(self.config[CONF_HISTORY][listbox.current()])
 				lock.signal()
+				self.__open_document(self.config[CONF_HISTORY][listbox.current()])
 			def current_list():
 				return [(basename((unicode(file))), dirname(unicode(file))) for file in self.config[CONF_HISTORY]]
 			def remove_recent():
@@ -558,21 +559,19 @@ class Editor:
 					else:
 						note(u'No more recent documents', 'info')
 						lock.signal()
-			def exit_key_handler():
-				lock.signal()
-			# save previous application state
-			previous_body = app.body
-			previous_menu = app.menu
-			previous_exit_key_handler = app.exit_key_handler
 			list = current_list()
 			if len(list) > 0:
+				# save previous application state
+				previous_body = app.body
+				previous_menu = app.menu
+				previous_exit_key_handler = app.exit_key_handler
 				listbox = Listbox(list, select)
 				app.body = listbox
 				app.menu = [
 					(u'Open', select),
 					(u'Remove from list', remove_recent),
 				]
-				app.exit_key_handler = exit_key_handler
+				app.exit_key_handler = lock.signal
 				listbox.bind(EKeyBackspace, remove_recent)
 				lock.wait()
 				# exit the editor
