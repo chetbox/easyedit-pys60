@@ -428,18 +428,18 @@ class Filebrowser (Directory_iter):
 
 
 class Editor:
-	"""A simple text editor for s60
-
-	Copyright Chetan Padia ( chetbox [at] gmail [dot] com )
-	Released under GPLv2 (See COPYING.txt)
-	"""
+	"""chetbox[at]gmail[dot]com - EasyEdit is Released under GPLv2 (See bundled COPYING.txt)"""
 	
-	def __init__(self):
-		self.titlebar = None
-		self.config = None
-		self.hasFocus = False
-		self.filebrowser = None
-		self.__document_lock = None
+	titlebar = None
+	config = None
+	hasFocus = False
+	filebrowser = None
+	__document_lock = None
+	text = None
+	
+	def __newline_fix(self, text):
+		"""Used to replace S60 UI newline characters with normal \n"""
+		return text.replace(u'\u2029',u'\n')
 
 	def __open_document(self, path, read_from_disk=True):
 		"""Open a document by reading from disk, and showing "busy" status.
@@ -476,7 +476,7 @@ class Editor:
 			if not(error):
 				if self.__document_lock == None:
 					self.__document_lock = Ao_lock()
-				#self.__document_lock.wait()	# seems to block UI! =(
+				self.__document_lock.wait()	# seems to block UI! =(
 				self.__document_lock = None
 		if path != None:
 			# add to recent list
@@ -568,6 +568,10 @@ class Editor:
 			if len(list) > 0:
 				listbox = Listbox(list, select)
 				app.body = listbox
+				app.menu = [
+					(u'Open', select),
+					(u'Remove from list', remove_recent),
+				]
 				app.exit_key_handler = exit_key_handler
 				listbox.bind(EKeyBackspace, remove_recent)
 				lock.wait()
@@ -577,7 +581,6 @@ class Editor:
 				app.exit_key_handler = previous_exit_key_handler
 			else:
 				note(u'No recent documents', 'info')
-				
 		def f_save(force=False):
 			"""save the current file - force skips exist check"""
 			if force or self.exists():
@@ -631,6 +634,20 @@ class Editor:
 						save_possible = True
 					if save_possible:
 						f_save(force=True)	# force prevents another call to f_save_as
+		def s_go_to_line():
+			"""move cursor to beginning of specified line number"""
+			text = self.__newline_fix(self.text.get())
+			total_lines = text.count(u'\n') + 1
+			line_no = query(u'Line number (1 - ' + unicode(total_lines) + ')', 'number', 1)
+			if line_no != None:
+				if line_no > 0 and line_no <= total_lines:
+					# find the position in the text of the beginning of the line required
+					last_newline = -1
+					for line in range(line_no - 1):
+						last_newline = text.index('\n', (last_newline + 1))
+					self.text.set_pos(last_newline + 1)
+				else:
+					note(u'Invalid line number', 'error')
 		# read settings
 		self.titlebar = Titlebar('document', u'EasyEdit')
 		self.config = Settings(CONF_DB, CONFFILE, self.titlebar)
@@ -638,10 +655,12 @@ class Editor:
 		# save current state
 		old_title = app.title
 		old_screen = app.screen
+		old_orientation = app.orientation
 		old_exit_key_handler = app.exit_key_handler
 		old_body = app.body
 		old_menu = app.menu
 		old_focus_handler = app.focus
+		# set up environment from settings
 		app.screen = self.config[CONF_SCREEN]
 		app.orientation = self.config[CONF_ORIENTATION]
 		# create editor environment
@@ -656,18 +675,18 @@ class Editor:
 				(u'Save', f_save),
 				(u'Save As', f_save_as),
 			)),
-		#	(u'Search', (
+			(u'Search', (
 		#		(u'Find', self.s_ffind),
 		#		(u'Find next', self.s_find),
 		#		(u'Find previous', self.s_rfind),
 		#		(u'Replace', self.s_replace),
-		#		(u'Go to line', self.s_line),
-		#	)),
+				(u'Go to line', s_go_to_line),
+			)),
 			(u'Settings', lambda : self.config.show_ui(callback=self.refresh)),
-		#	(u'Help', (
+			(u'Help', (
 		#		(u'Open README', self.h_readme),
-		#		(u'About EasyEdit', self.h_about),
-		#	)),
+				(u'About EasyEdit', lambda : query(unicode(self.__doc__), 'query')),
+			)),
 			(u'Exit', exitHandler),
 			]
 		# start editing a new document
@@ -686,7 +705,7 @@ class Editor:
 				# display line numbers if enabled
 				if self.hasFocus:
 					if self.config[CONF_LINE_NUMBERS] == 'yes':
-						n = self.text.get()[0:self.text.get_pos()].replace(u'\u2029',u'\n').count(u'\n')
+						n = self.__newline_fix(self.text.get()[:self.text.get_pos()]).count(u'\n')
 						self.titlebar.prepend('document', u'[' + unicode(n + 1) + '] ')
 						ao_yield()
 					ao_sleep(0.2)	# refresh rate of line numbers (seconds)
@@ -702,6 +721,7 @@ class Editor:
 		# restore original state
 		app.title = old_title
 		app.screen = old_screen
+		app.orientation = old_orientation
 		app.exit_key_handler = old_exit_key_handler
 		app.body = old_body
 		app.menu = old_menu
@@ -710,7 +730,7 @@ class Editor:
 	def encode(self, text):
 		"""encode text accoridng to settings"""
 		# ensure all new-lines are represented as '\n'
-		encoded_text = text.replace(u'\u2029',u'\n')
+		encoded_text = self.__newline_fix(text)
 		# convert to windows format if required
 		if self.config[CONF_NEW_LINES] == 'windows':
 			encoded_text = encoded_text.replace(u'\n', u'\r\n')
