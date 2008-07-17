@@ -497,6 +497,140 @@ class Editor:
 			self.hasFocus = f
 			if f:
 				focusLock.signal()
+		def save_query():
+			"""check if file needs saving and prompt user if necessary - returns user reponse"""
+			save = False
+			save_required = True
+			current_text = self.text.get()
+			if self.exists():
+				# read file and compare to current
+				f = open(self.path, 'r')
+				saved_text = f.read()
+				f.close()
+				if saved_text == self.encode(current_text):
+					save_required = False
+			elif len(current_text) == 0:
+				save_required = False
+			if save_required:
+				if DEBUG:
+					print("Save required")
+				save = popup_menu([u'Yes', u'No'], u'Save file?')
+				if save != None:
+					save = not(save)	# because 0 => 'yes' option, 1 => 'no' option
+					if save == True:
+						f_save()
+			return save
+		def f_new(force=False):
+			"""start a new, blank document"""
+			if force or save_query() != None:
+				self.text.clear()
+				self.refresh()
+				self.__open_document(None)
+		def f_open():
+			"""open an existing document"""
+			# show file selector
+			path = None
+			if self.filebrowser == None:
+				self.filebrowser = Filebrowser(self.config[CONF_LAST_DIR], self.titlebar)
+			path = self.filebrowser.show_ui()
+			# show "save?" dialog if necesary and open document
+			if path != None:
+				self.__save_last_dir(path)
+				if save_query() != None:
+					# open the document
+					self.__open_document(path)
+		def f_open_recent():
+			"""select a file to open from the recent document list"""
+			lock = Ao_lock()
+			listbox = None
+			def select():
+				self.__open_document(self.config[CONF_HISTORY][listbox.current()])
+				lock.signal()
+			def current_list():
+				return [(basename((unicode(file))), dirname(unicode(file))) for file in self.config[CONF_HISTORY]]
+			def remove_recent():
+				if query(u'Remove from recent documents?', 'query'):
+					self.config[CONF_HISTORY].remove(self.config[CONF_HISTORY][listbox.current()])
+					self.config.save()
+					new_list = current_list()
+					if len(new_list) > 0:
+						listbox.set_list(current_list())
+					else:
+						note(u'No more recent documents', 'info')
+						lock.signal()
+			def exit_key_handler():
+				lock.signal()
+			# save previous application state
+			previous_body = app.body
+			previous_menu = app.menu
+			previous_exit_key_handler = app.exit_key_handler
+			list = current_list()
+			if len(list) > 0:
+				listbox = Listbox(list, select)
+				app.body = listbox
+				app.exit_key_handler = exit_key_handler
+				listbox.bind(EKeyBackspace, remove_recent)
+				lock.wait()
+				# exit the editor
+				app.body = previous_body
+				app.menu = previous_menu
+				app.exit_key_handler = previous_exit_key_handler
+			else:
+				note(u'No recent documents', 'info')
+				
+		def f_save(force=False):
+			"""save the current file - force skips exist check"""
+			if force or self.exists():
+				# show "busy" message
+				self.titlebar.prepend('document', BUSY_MESSAGE + u' ')
+				try:
+					text = self.encode(self.text.get())
+					f=open(self.path, 'w')
+					f.write(text)
+					f.close()
+					note(u'File saved','conf')
+				except:
+				    note(u'Error saving file.','error')
+				# clear "busy" message
+				self.titlebar.refresh()
+			else:
+				f_save_as()
+		def f_save_as():
+			"""save current file at a new location"""
+			# show file selector
+			path = None
+			if self.filebrowser == None:
+				self.filebrowser = Filebrowser(self.config[CONF_LAST_DIR], self.titlebar)
+			path = self.filebrowser.show_ui(allow_directory=True)
+			if path != None:
+				# assume a directory has been selected -  suggest a filename in the current directory
+				new_file_location = dirname(path)
+				containing_dir = basename(path)
+				# <hack reason="top-level paths (drives) need to have a \ appended because join will not add it">
+				if len(new_file_location) == 2:	# if new_file_location is just a drive letter (top-level)
+					new_file_location += '\\' # append a \ 
+				# </hack>
+				suggested_filename = join(containing_dir, 'untitled.txt')
+				# if a file is selected update the suggested name with its name
+				if isfile(path):
+					current_filename = containing_dir	# if a dir was not selected containing_dir is the filename
+					containing_dir = basename(new_file_location)
+					new_file_location = dirname(new_file_location)
+					suggested_filename = join(containing_dir, current_filename)
+				new_filename = query(unicode(new_file_location), 'text', unicode(suggested_filename))
+				if new_filename != None:
+					self.path = join(new_file_location, new_filename)
+					self.__save_last_dir(self.path)
+					# check if file already exists and ask if it should be replaced
+					save_possible = False
+					if isfile(self.path):
+						save_possible = query(u'Overwite file?', 'query')
+					elif isdir(self.path):
+						note(u'Not saved: A directory exists with that name', 'info')
+					else:
+						save_possible = True
+					if save_possible:
+						f_save(force=True)	# force prevents another call to f_save_as
 		# read settings
 		self.titlebar = Titlebar('document', u'EasyEdit')
 		self.config = Settings(CONF_DB, CONFFILE, self.titlebar)
@@ -516,11 +650,11 @@ class Editor:
 		# set up menu
 		app.menu=[
 			(u'File', (
-				(u'New', self.f_new),
-				(u'Open', self.f_open),
-				(u'Open recent', self.f_open_recent),
-				(u'Save', self.f_save),
-				(u'Save As', self.f_save_as),
+				(u'New', f_new),
+				(u'Open', f_open),
+				(u'Open recent', f_open_recent),
+				(u'Save', f_save),
+				(u'Save As', f_save_as),
 			)),
 		#	(u'Search', (
 		#		(u'Find', self.s_ffind),
@@ -537,14 +671,14 @@ class Editor:
 			(u'Exit', exitHandler),
 			]
 		# start editing a new document
-		self.f_new()
+		f_new()
 		# display editor
 		app.body = self.text
 		ao_yield()
 		app.exit_key_handler = exitHandler
 		app.focus = focusHandler
 		# set the 'dial' key to save document
-		self.text.bind(EKeyYes, self.f_save)
+		self.text.bind(EKeyYes, f_save)
 		quit_app = None
 		while quit_app == None:
 			self.running = True
@@ -560,7 +694,7 @@ class Editor:
 					# lock to stop busy waiting when app is not in focus
 					focusLock.wait()
 			# intent to close application has now been expressed
-			quit_app = self.save_query()
+			quit_app = save_query()
 		# application should now be closing
 		# unlock any pending locks
 		if self.__document_lock != None:
@@ -597,30 +731,6 @@ class Editor:
 		"""handy function that checks if the open document exists on disk (may have different contents)"""
 		return (self.path != None) and (len(self.path) > 0) and isfile(self.path)
 		
-	def save_query(self):
-		"""check if file needs saving and prompt user if necessary - returns user reponse"""
-		save = False
-		save_required = True
-		current_text = self.text.get()
-		if self.exists():
-			# read file and compare to current
-			f = open(self.path, 'r')
-			saved_text = f.read()
-			f.close()
-			if saved_text == self.encode(current_text):
-				save_required = False
-		elif len(current_text) == 0:
-			save_required = False
-		if save_required:
-			if DEBUG:
-				print("Save required")
-			save = popup_menu([u'Yes', u'No'], u'Save file?')
-			if save != None:
-				save = not(save)	# because 0 => yes, 0 => no
-				if save == True:
-					self.f_save()
-		return save
-
 	def refresh(self):
 		"""refresh the editor view"""
 		def refresh():
@@ -635,14 +745,6 @@ class Editor:
 			self.text.set(text)
 			self.text.set_pos(cursor_position)
 		self.titlebar.run_no_path('refresh', BUSY_MESSAGE, refresh)
-
-	def f_new(self, force=False):
-		"""start a new, blank document"""
-		if force or self.save_query() != None:
-			self.text.clear()
-			self.refresh()
-			#self.path = None
-			self.__open_document(None)
 	
 	def __save_last_dir(self, path):
 		"""save the location of the last viewed directory in self.config"""
@@ -652,113 +754,6 @@ class Editor:
 			self.config[CONF_LAST_DIR] = dirname(normpath(path))
 		self.config.save()
 
-	def f_open(self):
-		"""open an existing document"""
-		# show file selector
-		path = None
-		if self.filebrowser == None:
-			self.filebrowser = Filebrowser(self.config[CONF_LAST_DIR], self.titlebar)
-		path = self.filebrowser.show_ui()
-		# show "save?" dialog if necesary and open document
-		if path != None:
-			self.__save_last_dir(path)
-			if self.save_query() != None:
-				# open the document
-				self.__open_document(path)
-	
-	def f_open_recent(self):
-		"""select a file to open from the recent document list"""
-		lock = Ao_lock()
-		listbox = None
-		def select():
-			self.__open_document(self.config[CONF_HISTORY][listbox.current()])
-			lock.signal()
-		def current_list():
-			return [(basename((unicode(file))), dirname(unicode(file))) for file in self.config[CONF_HISTORY]]
-		def remove_recent():
-			if query(u'Remove from recent documents?', 'query'):
-				self.config[CONF_HISTORY].remove(self.config[CONF_HISTORY][listbox.current()])
-				self.config.save()
-				new_list = current_list()
-				if len(new_list) > 0:
-					listbox.set_list(current_list())
-				else:
-					note(u'No more recent documents', 'info')
-					lock.signal()
-		def exit_key_handler():
-			lock.signal()
-		# save previous application state
-		previous_body = app.body
-		previous_menu = app.menu
-		previous_exit_key_handler = app.exit_key_handler
-		list = current_list()
-		if len(list) > 0:
-			listbox = Listbox(list, select)
-			app.body = listbox
-			app.exit_key_handler = exit_key_handler
-			listbox.bind(EKeyBackspace, remove_recent)
-			lock.wait()
-			# exit the editor
-			app.body = previous_body
-			app.menu = previous_menu
-			app.exit_key_handler = previous_exit_key_handler
-		else:
-			note(u'No recent documents', 'info')
-			
-	def f_save(self, force=False):
-		"""save the current file - force skips exist check"""
-		if force or self.exists():
-			# show "busy" message
-			self.titlebar.prepend('document', BUSY_MESSAGE + u' ')
-			try:
-				text = self.encode(self.text.get())
-				f=open(self.path, 'w')
-				f.write(text)
-				f.close()
-				note(u'File saved','conf')
-			except:
-			    note(u'Error saving file.','error')
-			# clear "busy" message
-			self.titlebar.refresh()
-		else:
-			self.f_save_as()
-	
-	def f_save_as(self):
-		"""save current file at a new location"""
-		# show file selector
-		path = None
-		if self.filebrowser == None:
-			self.filebrowser = Filebrowser(self.config[CONF_LAST_DIR], self.titlebar)
-		path = self.filebrowser.show_ui(allow_directory=True)
-		if path != None:
-			# assume a directory has been selected -  suggest a filename in the current directory
-			new_file_location = dirname(path)
-			containing_dir = basename(path)
-			# <hack reason="top-level paths (drives) need to have a \ appended because join will not add it">
-			if len(new_file_location) == 2:	# if new_file_location is just a drive letter (top-level)
-				new_file_location += '\\' # append a \ 
-			# </hack>
-			suggested_filename = join(containing_dir, 'untitled.txt')
-			# if a file is selected update the suggested name with its name
-			if isfile(path):
-				current_filename = containing_dir	# if a dir was not selected containing_dir is the filename
-				containing_dir = basename(new_file_location)
-				new_file_location = dirname(new_file_location)
-				suggested_filename = join(containing_dir, current_filename)
-			new_filename = query(unicode(new_file_location), 'text', unicode(suggested_filename))
-			if new_filename != None:
-				self.path = join(new_file_location, new_filename)
-				self.__save_last_dir(self.path)
-				# check if file already exists and ask if it should be replaced
-				save_possible = False
-				if isfile(self.path):
-					save_possible = query(u'Overwite file?', 'query')
-				elif isdir(self.path):
-					note(u'Not saved: A directory exists with that name', 'info')
-				else:
-					save_possible = True
-				if save_possible:
-					self.f_save(force=True)	# force prevents another call to f_save_as
 
 
 # run the editor!
