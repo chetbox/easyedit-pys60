@@ -476,7 +476,7 @@ class Editor:
 			if not(error):
 				if self.__document_lock == None:
 					self.__document_lock = Ao_lock()
-				self.__document_lock.wait()	# seems to block UI! =(
+				#self.__document_lock.wait()	# seems to block UI! =(
 				self.__document_lock = None
 		if path != None:
 			# add to recent list
