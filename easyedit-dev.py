@@ -129,6 +129,76 @@ class Titlebar (object):
 			ao_yield()
 
 
+from appuifw import app
+from topwindow import TopWindow
+from graphics import Image
+
+class Statusbar (object):
+	"""A class that displays a message in a S60 TopWindow"""
+	
+	window = None
+	hasFocus = False
+	enabled = True
+	__message = None
+	
+	def __init__(self, message=u'', size=None, position=None, enabled=True):
+		self.window = TopWindow()
+		if size:
+			self.window.size = size
+		if position:
+			self.window.position = position
+		self.enabled = enabled
+		self.message = message	# this will trigger the update of the window
+		externalFocusHandler = app.focus
+		def focusHandler(f):
+			if f and not(self.hasFocus):	# if we have just got focus
+				self.hasFocus = True
+				self.show()
+			if not(f) and self.hasFocus:	# if we just lost focus
+				self.hasFocus = False
+				self.hide()
+			if externalFocusHandler:
+				externalFocusHandler(f)
+		app.focus = focusHandler
+		self.show()	# display the window by default
+		
+	def update(self, force=False):
+		# needs to be optimised to not update screen if nothing changes
+		# needs to use font specified in settings
+		# draw message in window
+		image = Image.new(self.window.size)
+		image.rectangle((0, 0, self.window.size[0], self.window.size[1]), fill=0x000000, outline=None)
+		image.text((2, self.window.size[1]/2 + 2), self.message, fill=0xFFFFFF)
+		self.window.add_image(image, (0, 0))
+		
+	def __getMessage(self):
+		return self.__message
+	def __setMessage(self, value):
+		self.__message = unicode(value)
+		self.update()
+	message = property(fget=__getMessage, fset=__setMessage)
+	
+	def __getSize(self):
+		return self.window.size
+	def __setSize(self, value):
+		self.window.size = value
+		self.update()
+	size = property(fget=__getSize, fset=__setSize)
+	
+	def __getPosition(self):
+		return self.window.position
+	def __setPosition(self, value):
+		self.window.position = value
+	position = property(fget=__getPosition, fset=__setPosition)
+	
+	def show(self):
+		if self.enabled:
+			self.window.show()
+	
+	def hide(self):
+		self.window.hide()
+
+
 class Settings (dict):
 	"""Settings manager"""
 	
