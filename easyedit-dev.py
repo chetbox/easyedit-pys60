@@ -34,7 +34,6 @@ from os.path import exists, isfile, isdir, join, basename, dirname, normpath
 from sys import getdefaultencoding, exc_info
 from encodings import aliases
 from graphics import FONT_ANTIALIAS
-from dir_iter import Directory_iter
 
 # configuration file keys
 CONF_VERSION		= 'version'
@@ -51,25 +50,27 @@ CONF_LAST_DIR		= 'last dir'
 CONF_NEW_LINES		= 'new lines'
 CONF_LINE_NUMBERS	= 'line numbers'
 CONF_CASE_SENSITIVE	= 'case-sensitive search'
+CONF_GROUP_MAIN		= 'main'
+CONF_GROUP_FIND		= 'find'
 
 CONF_DB = [
-	# id				description		default			min. s60_version	options (None => no dialog)			(a,'b') => a.b = option
-	(CONF_VERSION,			'Version',		VERSION,		1,			None,						None				),
-	(CONF_ENCODING,			'File encoding',	getdefaultencoding(),	1,			[unicode(enc) for enc in aliases.aliases],	None				),
-	(CONF_NEW_LINES,		'New lines',		'unix',			1,			['unix', 'windows'],				None				),
-	(CONF_CASE_SENSITIVE,		'Case sensitive find',	'no',			1,			['yes', 'no'],					None				),
-	(CONF_FONT,			'Font',			Text().font[0],		1,			available_fonts(),				None				),
-	(CONF_FONT_SIZE,		'Font size',		15,			2,			int,						None				),
-	(CONF_FONT_COLOUR,		'Font colour',		(0,0,0),		1,			None,						None				),
-	(CONF_FONT_ANTIALIAS,		'Font anti-aliasing',	'no',			2,			['yes', 'no'],					None				),
-	(CONF_LINE_NUMBERS,		'Display line number',	'yes',			1,			['yes', 'no'],					None				),
-	(CONF_LAST_DIR,			'Last used directory',	'\\',			1,			None,						None				),
-	(CONF_HISTORY,			'History',		[],			1,			None,						None				),
-	(CONF_HISTORY_SIZE,		'Max history size',	8,			1,			int,						None				),
-	(CONF_SCREEN,			'Screen Size',		'normal',		1,			['large', 'normal', 'full'],			(app, 'screen')			),
-	(CONF_ORIENTATION,		'Screen orientation',	'automatic',		3,			['automatic', 'portrait', 'landscape'],		(app, 'orientation')		),
+	# id			group			description		default			min. s60_version	options (None => no dialog)			(a,'b') => a.b = option
+	(CONF_VERSION,		CONF_GROUP_MAIN,	'Version',		VERSION,		1,			None,						None				),
+	(CONF_ENCODING,		CONF_GROUP_MAIN,	'File encoding',	getdefaultencoding(),	1,			[unicode(enc) for enc in aliases.aliases],	None				),
+	(CONF_NEW_LINES,	CONF_GROUP_MAIN,	'New lines',		'unix',			1,			['unix', 'windows'],				None				),
+	(CONF_FONT,		CONF_GROUP_MAIN,	'Font',			Text().font[0],		1,			available_fonts(),				None				),
+	(CONF_FONT_SIZE,	CONF_GROUP_MAIN,	'Font size',		15,			2,			int,						None				),
+	(CONF_FONT_COLOUR,	CONF_GROUP_MAIN,	'Font colour',		(0,0,0),		1,			None,						None				),
+	(CONF_FONT_ANTIALIAS,	CONF_GROUP_MAIN,	'Font anti-aliasing',	'no',			2,			['yes', 'no'],					None				),
+	(CONF_LINE_NUMBERS,	CONF_GROUP_MAIN,	'Display line number',	'yes',			1,			['yes', 'no'],					None				),
+	(CONF_LAST_DIR,		CONF_GROUP_MAIN,	'Last used directory',	'\\',			1,			None,						None				),
+	(CONF_HISTORY,		CONF_GROUP_MAIN,	'History',		[],			1,			None,						None				),
+	(CONF_HISTORY_SIZE,	CONF_GROUP_MAIN,	'Max history size',	8,			1,			int,						None				),
+	(CONF_SCREEN,		CONF_GROUP_MAIN,	'Screen Size',		'normal',		1,			['large', 'normal', 'full'],			(app, 'screen')			),
+	(CONF_ORIENTATION,	CONF_GROUP_MAIN,	'Screen orientation',	'automatic',		3,			['automatic', 'portrait', 'landscape'],		(app, 'orientation')		),
+	(CONF_CASE_SENSITIVE,	CONF_GROUP_FIND,	'Case sensitive find',	'no',			1,			['yes', 'no'],					None				),
 ]
-
+# need to make CONF_LINE_NUMBERS create/hide Statusbar object
 
 class Titlebar (object):
 	"""A class to manage the S60 Titlebar"""		
@@ -138,7 +139,7 @@ class Statusbar (object):
 	
 	window = None
 	hasFocus = False
-	enabled = True
+	__enabled = True
 	__message = None
 	
 	def __init__(self, message=u'', size=None, position=None, enabled=True):
@@ -147,16 +148,17 @@ class Statusbar (object):
 			self.window.size = size
 		if position:
 			self.window.position = position
-		self.enabled = enabled
+		self.__enabled = enabled
 		self.message = message	# this will trigger the update of the window
 		externalFocusHandler = app.focus
 		def focusHandler(f):
 			if f and not(self.hasFocus):	# if we have just got focus
 				self.hasFocus = True
-				self.show()
+				if self.__enabled:
+					self.window.show()
 			if not(f) and self.hasFocus:	# if we just lost focus
 				self.hasFocus = False
-				self.hide()
+				self.window.hide()
 			if externalFocusHandler:
 				externalFocusHandler(f)
 		app.focus = focusHandler
@@ -192,11 +194,12 @@ class Statusbar (object):
 	position = property(fget=__getPosition, fset=__setPosition)
 	
 	def show(self):
-		if self.enabled:
-			self.window.show()
+		self.window.show()
+		self.__enabled = True
 	
 	def hide(self):
 		self.window.hide()
+		self.__enabled = False
 
 
 class Settings (dict):
@@ -211,7 +214,7 @@ class Settings (dict):
 		"""equivalent to dict.__setitem__ but flags saveRequired"""
 		self.saveRequired = True
 		dict.__setitem__(self, key, value)
-
+	
 	def __init__(self, db, path, titlebar=Titlebar('settings')):
 		dict.__init__(self)
 		self.titlebar = titlebar
@@ -239,7 +242,7 @@ class Settings (dict):
 			if DEBUG:
 				print("Creating new config...")
 			# set current settings to these defaults
-			self.update(dict([(id, default) for (id,description,default,s60,options,action) in self.db]))
+			self.update(dict([(id, default) for (id,group,description,default,s60,options,action) in self.db]))
 			self.save()
 
 	def save(self):
@@ -257,30 +260,38 @@ class Settings (dict):
 				note(u'Error saving config', 'error')
 		elif DEBUG:
 			print("Config not saved")
+	
+	def __currentSettingsList(self, group_requested=None):
+		return [(id,group,description,default,s60,options,action)
+			for (id,group,description,default,s60,options,action) in self.db
+				if s60_version_info[0] >= s60
+				and options != None						# filter out items with no user options
+				and (group_requested == None or group_requested == group)	# filter by group_requested if provided
+		]
 
-	def refresh_ui(self):
-		"""Update the Settings panel with the current settings"""
-		if self.settings_list:
+	def refresh_ui(self, settingsList=None):
+		"""Update the Settings panel with the settings passed into settingsList"""
+		if self.settings_list:	# make sure the UI control exists
+			# get a list of all settings if one has not been provided
+			if settingsList == None:
+				settingsList = self.__currentSettingsList()
 			slist = [(unicode(description), unicode(self[id]))
-						for (id,description,default,s60,options,action) in self.db
-						if s60_version_info[0] >= s60
-							and options != None
-					]
+				for (id,group,description,default,s60,options,action) 
+				in settingsList
+			]
 			self.settings_list.set_list(slist, self.settings_list.current())
 			ao_yield()
 		elif DEBUG:
 			print("Settings: update: No list to update!")
 
-	def show_ui(self, callback=None):
+	def show_ui(self, group_requested=None, callback=None):
 		"""Create and show a settings editor"""
 		def show():
 			def _modify(selected):
 				"""edit a setting"""
-				(id, description, options, action, supported_s60_version) = \
-					[(id, description, options, action, s60)
-						for (id,description,default,s60,options,action) in self.db
-						if s60_version_info[0] >= s60
-							and options != None
+				(id, description, options, action, supported_s60_version) = [(id, description, options, action, s60)
+					for (id,group,description,default,s60,options,action) 
+					in self.__currentSettingsList(group_requested)
 					][selected]
 				# save a copy of current config
 				oldconfig = self.copy()
@@ -289,6 +300,7 @@ class Settings (dict):
 				if options.__class__ == type:
 					if options == int:
 						selection = query(unicode(description), 'number', self[id])
+					# should accept "bool" type
 					if selection != None:
 						self[id] = selection
 				elif options.__class__ == list:
@@ -302,7 +314,7 @@ class Settings (dict):
 						self[id] = str(options[selection])
 				elif DEBUG:
 					print("Settings : Unsupported type " + str(options.__class__))
-				self.refresh_ui()
+				self.refresh_ui(self.__currentSettingsList(group_requested))
 				# save if any changes have been made
 				if oldconfig != self:
 					self.save()
@@ -313,7 +325,7 @@ class Settings (dict):
 					except:
 						note(u'Error setting ' + unicode(description), 'error')
 			self.settings_list = Listbox([(u'dummy',u'item')], lambda: _modify(self.settings_list.current()))
-			self.refresh_ui()
+			self.refresh_ui(self.__currentSettingsList(group_requested))
 			# save previous application state
 			previous_body = app.body
 			previous_menu = app.menu
@@ -343,6 +355,8 @@ class Settings (dict):
 			callback()
 		return retval
 
+
+from dir_iter import Directory_iter
 
 class Filebrowser (Directory_iter):
 	def __init__(self, initial_dir='\\', titlebar=Titlebar('filebrowser')):
@@ -703,6 +717,9 @@ class Editor:
 						save_possible = True
 					if save_possible:
 						f_save(force=True)	# force prevents another call to f_save_as
+		def s_find():
+			"""find a string in the document"""
+			pass
 		def s_go_to_line():
 			"""move cursor to beginning of specified line number"""
 			text = self.__newline_fix(self.text.get())
@@ -732,6 +749,9 @@ class Editor:
 		# set up environment from settings
 		app.screen = self.config[CONF_SCREEN]
 		app.orientation = self.config[CONF_ORIENTATION]
+		statusbar = None
+		if self.config[CONF_LINE_NUMBERS] == 'yes':
+			statusbar = Statusbar(size=(120, 26), position=(60, 294))
 		# create editor environment
 		self.text = Text()
 		self.path = None
@@ -751,7 +771,7 @@ class Editor:
 		#		(u'Replace', self.s_replace),
 				(u'Go to line', s_go_to_line),
 			)),
-			(u'Settings', lambda : self.config.show_ui(callback=self.refresh)),
+			(u'Settings', lambda : self.config.show_ui(group_requested=CONF_GROUP_MAIN, callback=self.refresh)),	# show all CONF_GROUP_MAIN settings
 			(u'Help', (
 		#		(u'Open README', self.h_readme),
 				(u'About EasyEdit', lambda : query(unicode(self.__doc__), 'query')),
@@ -776,6 +796,8 @@ class Editor:
 					if self.config[CONF_LINE_NUMBERS] == 'yes':
 						n = self.__newline_fix(self.text.get()[:self.text.get_pos()]).count(u'\n')
 						self.titlebar.prepend('document', u'[' + unicode(n + 1) + '] ')
+						if self.config[CONF_LINE_NUMBERS] == 'yes':
+							statusbar.message = u'Line no: ' + unicode(n + 1)
 						ao_yield()
 					ao_sleep(0.2)	# refresh rate of line numbers (seconds)
 				else:
@@ -791,6 +813,8 @@ class Editor:
 		app.title = old_title
 		app.screen = old_screen
 		app.orientation = old_orientation
+		if self.config[CONF_LINE_NUMBERS] == 'yes':
+			statusbar.hide()
 		app.exit_key_handler = old_exit_key_handler
 		app.body = old_body
 		app.menu = old_menu
