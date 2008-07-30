@@ -284,7 +284,7 @@ class Settings (dict):
 		elif DEBUG:
 			print("Settings: update: No list to update!")
 
-	def show_ui(self, group_requested=None, callback=None):
+	def show_ui(self, group_requested=None, callback=None, titlebar=u'Settings'):
 		"""Create and show a settings editor"""
 		def show():
 			def _modify(selected):
@@ -300,7 +300,6 @@ class Settings (dict):
 				if options.__class__ == type:
 					if options == int:
 						selection = query(unicode(description), 'number', self[id])
-					# should accept "bool" type
 					if selection != None:
 						self[id] = selection
 				elif options.__class__ == list:
@@ -348,7 +347,7 @@ class Settings (dict):
 			del(self.settings_list)	# destroy list UI to save memory
 		retval = None
 		if self.titlebar != None:
-			retval = self.titlebar.run('settings', u'Settings', show)
+			retval = self.titlebar.run('settings', titlebar, show)
 		else:
 			retval = show()
 		if callback != None:
@@ -717,9 +716,6 @@ class Editor:
 						save_possible = True
 					if save_possible:
 						f_save(force=True)	# force prevents another call to f_save_as
-		def s_find():
-			"""find a string in the document"""
-			pass
 		def s_go_to_line():
 			"""move cursor to beginning of specified line number"""
 			text = self.__newline_fix(self.text.get())
@@ -734,6 +730,9 @@ class Editor:
 					self.text.set_pos(last_newline + 1)
 				else:
 					note(u'Invalid line number', 'error')
+		def s_find():
+			"""find a string in the document"""
+			self.config.show_ui(group_requested=CONF_GROUP_FIND, titlebar=u'Find')
 		# read settings
 		self.titlebar = Titlebar('document', u'EasyEdit')
 		self.config = Settings(CONF_DB, CONFFILE, self.titlebar)
@@ -765,10 +764,10 @@ class Editor:
 				(u'Save As', f_save_as),
 			)),
 			(u'Search', (
-		#		(u'Find', self.s_ffind),
-		#		(u'Find next', self.s_find),
-		#		(u'Find previous', self.s_rfind),
-		#		(u'Replace', self.s_replace),
+				(u'Find', s_find),
+		#		(u'Find next', s_find_next),
+		#		(u'Find previous', s_find_prev),
+		#		(u'Replace', s_replace),
 				(u'Go to line', s_go_to_line),
 			)),
 			(u'Settings', lambda : self.config.show_ui(group_requested=CONF_GROUP_MAIN, callback=self.refresh)),	# show all CONF_GROUP_MAIN settings
