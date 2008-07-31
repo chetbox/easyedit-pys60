@@ -21,7 +21,7 @@ Released under GPLv2 (See COPYING.txt)
 
 
 # Settings
-VERSION=(2, 0, 5)
+VERSION=(2, 0, 7)
 DEBUG = False
 CONFFILE='C:\\SYSTEM\\Data\\EasyEdit.conf.dev'
 BUSY_MESSAGE = u'[busy]'
@@ -35,40 +35,51 @@ from sys import getdefaultencoding, exc_info
 from encodings import aliases
 from graphics import FONT_ANTIALIAS
 
-# configuration file keys
-CONF_VERSION		= 'version'
-CONF_SCREEN		= 'screen size'
-CONF_ORIENTATION	= 'screen orentation'
-CONF_FONT		= 'font'
-CONF_FONT_SIZE		= 'font size'
-CONF_FONT_COLOUR	= 'font colour'
-CONF_FONT_ANTIALIAS	= 'font anti-aliasing'
-CONF_ENCODING		= 'encoding'
-CONF_HISTORY		= 'history'
-CONF_HISTORY_SIZE	= 'history size'
-CONF_LAST_DIR		= 'last dir'
-CONF_NEW_LINES		= 'new lines'
-CONF_LINE_NUMBERS	= 'line numbers'
-CONF_CASE_SENSITIVE	= 'case-sensitive search'
-CONF_GROUP_MAIN		= 'main'
-CONF_GROUP_FIND		= 'find'
+# main configuration keys
+CONF_VERSION			= 'version'
+CONF_SCREEN			= 'screen size'
+CONF_ORIENTATION		= 'screen orentation'
+CONF_FONT			= 'font'
+CONF_FONT_SIZE			= 'font size'
+CONF_FONT_COLOUR		= 'font colour'
+CONF_FONT_ANTIALIAS		= 'font anti-aliasing'
+CONF_ENCODING			= 'encoding'
+CONF_HISTORY			= 'history'
+CONF_HISTORY_SIZE		= 'history size'
+CONF_LAST_DIR			= 'last dir'
+CONF_NEW_LINES			= 'new lines'
+CONF_LINE_NUMBERS		= 'line numbers'
+
+# search settings keys
+CONF_FIND_CASE_SENSITIVE	= 'case-sensitive search'
+CONF_FIND_TEXT			= 'search text'
+CONF_FIND_REGEXP		= 'regular expression'
+CONF_REPLACE_TEXT		= 'replace text'
+
+# config groups keys
+CONF_GROUP_MAIN			= 'main'
+CONF_GROUP_FIND			= 'find'
+CONF_GROUP_REPLACE		= 'replace'
 
 CONF_DB = [
-	# id			group			description		default			min. s60_version	options (None => no dialog)			(a,'b') => a.b = option
-	(CONF_VERSION,		CONF_GROUP_MAIN,	'Version',		VERSION,		1,			None,						None				),
-	(CONF_ENCODING,		CONF_GROUP_MAIN,	'File encoding',	getdefaultencoding(),	1,			[unicode(enc) for enc in aliases.aliases],	None				),
-	(CONF_NEW_LINES,	CONF_GROUP_MAIN,	'New lines',		'unix',			1,			['unix', 'windows'],				None				),
-	(CONF_FONT,		CONF_GROUP_MAIN,	'Font',			Text().font[0],		1,			available_fonts(),				None				),
-	(CONF_FONT_SIZE,	CONF_GROUP_MAIN,	'Font size',		15,			2,			int,						None				),
-	(CONF_FONT_COLOUR,	CONF_GROUP_MAIN,	'Font colour',		(0,0,0),		1,			None,						None				),
-	(CONF_FONT_ANTIALIAS,	CONF_GROUP_MAIN,	'Font anti-aliasing',	'no',			2,			['yes', 'no'],					None				),
-	(CONF_LINE_NUMBERS,	CONF_GROUP_MAIN,	'Display line number',	'yes',			1,			['yes', 'no'],					None				),
-	(CONF_LAST_DIR,		CONF_GROUP_MAIN,	'Last used directory',	'\\',			1,			None,						None				),
-	(CONF_HISTORY,		CONF_GROUP_MAIN,	'History',		[],			1,			None,						None				),
-	(CONF_HISTORY_SIZE,	CONF_GROUP_MAIN,	'Max history size',	8,			1,			int,						None				),
-	(CONF_SCREEN,		CONF_GROUP_MAIN,	'Screen Size',		'normal',		1,			['large', 'normal', 'full'],			(app, 'screen')			),
-	(CONF_ORIENTATION,	CONF_GROUP_MAIN,	'Screen orientation',	'automatic',		3,			['automatic', 'portrait', 'landscape'],		(app, 'orientation')		),
-	(CONF_CASE_SENSITIVE,	CONF_GROUP_FIND,	'Case sensitive find',	'no',			1,			['yes', 'no'],					None				),
+	# id				group			description		default			min. s60_version	options (None => no dialog)			(a,'b') => a.b = option
+	(CONF_VERSION,			CONF_GROUP_MAIN,	'Version',		VERSION,		1,			None,						None				),
+	(CONF_ENCODING,			CONF_GROUP_MAIN,	'File encoding',	getdefaultencoding(),	1,			[unicode(enc) for enc in aliases.aliases],	None				),
+	(CONF_NEW_LINES,		CONF_GROUP_MAIN,	'New lines',		'unix',			1,			['unix', 'windows'],				None				),
+	(CONF_FONT,			CONF_GROUP_MAIN,	'Font',			Text().font[0],		1,			available_fonts(),				None				),
+	(CONF_FONT_SIZE,		CONF_GROUP_MAIN,	'Font size',		15,			2,			int,						None				),
+	(CONF_FONT_COLOUR,		CONF_GROUP_MAIN,	'Font colour',		(0,0,0),		1,			None,						None				),
+	(CONF_FONT_ANTIALIAS,		CONF_GROUP_MAIN,	'Font anti-aliasing',	'no',			2,			['yes', 'no'],					None				),
+	(CONF_LINE_NUMBERS,		CONF_GROUP_MAIN,	'Display line number',	'yes',			1,			['yes', 'no'],					None				),
+	(CONF_LAST_DIR,			CONF_GROUP_MAIN,	'Last used directory',	'\\',			1,			None,						None				),
+	(CONF_HISTORY,			CONF_GROUP_MAIN,	'History',		[],			1,			None,						None				),
+	(CONF_HISTORY_SIZE,		CONF_GROUP_MAIN,	'Max history size',	8,			1,			int,						None				),
+	(CONF_SCREEN,			CONF_GROUP_MAIN,	'Screen Size',		'normal',		1,			['large', 'normal', 'full'],			(app, 'screen')			),
+	(CONF_ORIENTATION,		CONF_GROUP_MAIN,	'Screen orientation',	'automatic',		3,			['automatic', 'portrait', 'landscape'],		(app, 'orientation')		),
+	(CONF_FIND_TEXT,		CONF_GROUP_FIND,	'Search text',		'',			1,			unicode,					None				),
+	(CONF_REPLACE_TEXT,		CONF_GROUP_REPLACE,	'Replace text',		'',			1,			unicode,					None				),
+	(CONF_FIND_CASE_SENSITIVE,	CONF_GROUP_FIND,	'Case sensitive find',	'no',			1,			['yes', 'no'],					None				),
+	(CONF_FIND_REGEXP,		CONF_GROUP_FIND,	'Regular expression',	'no',			1,			['yes', 'no'],					None				),
 ]
 # need to make CONF_LINE_NUMBERS create/hide Statusbar object
 
@@ -261,12 +272,12 @@ class Settings (dict):
 		elif DEBUG:
 			print("Config not saved")
 	
-	def __currentSettingsList(self, group_requested=None):
+	def __currentSettingsList(self, groups_requested=[]):
 		return [(id,group,description,default,s60,options,action)
 			for (id,group,description,default,s60,options,action) in self.db
 				if s60_version_info[0] >= s60
-				and options != None						# filter out items with no user options
-				and (group_requested == None or group_requested == group)	# filter by group_requested if provided
+				and options != None		# filter out items with no user options
+				and group in groups_requested	# filter by groups_requested list
 		]
 
 	def refresh_ui(self, settingsList=None):
@@ -284,14 +295,14 @@ class Settings (dict):
 		elif DEBUG:
 			print("Settings: update: No list to update!")
 
-	def show_ui(self, group_requested=None, callback=None, titlebar=u'Settings'):
+	def show_ui(self, groups_requested=[], callback=None, titlebar=u'Settings'):
 		"""Create and show a settings editor"""
 		def show():
 			def _modify(selected):
 				"""edit a setting"""
 				(id, description, options, action, supported_s60_version) = [(id, description, options, action, s60)
 					for (id,group,description,default,s60,options,action) 
-					in self.__currentSettingsList(group_requested)
+					in self.__currentSettingsList(groups_requested)
 					][selected]
 				# save a copy of current config
 				oldconfig = self.copy()
@@ -300,6 +311,8 @@ class Settings (dict):
 				if options.__class__ == type:
 					if options == int:
 						selection = query(unicode(description), 'number', self[id])
+					elif options == str or options == unicode:
+						selection = query(unicode(description), 'text', unicode(self[id]))
 					if selection != None:
 						self[id] = selection
 				elif options.__class__ == list:
@@ -313,7 +326,7 @@ class Settings (dict):
 						self[id] = str(options[selection])
 				elif DEBUG:
 					print("Settings : Unsupported type " + str(options.__class__))
-				self.refresh_ui(self.__currentSettingsList(group_requested))
+				self.refresh_ui(self.__currentSettingsList(groups_requested))
 				# save if any changes have been made
 				if oldconfig != self:
 					self.save()
@@ -324,7 +337,7 @@ class Settings (dict):
 					except:
 						note(u'Error setting ' + unicode(description), 'error')
 			self.settings_list = Listbox([(u'dummy',u'item')], lambda: _modify(self.settings_list.current()))
-			self.refresh_ui(self.__currentSettingsList(group_requested))
+			self.refresh_ui(self.__currentSettingsList(groups_requested))
 			# save previous application state
 			previous_body = app.body
 			previous_menu = app.menu
@@ -732,7 +745,10 @@ class Editor:
 					note(u'Invalid line number', 'error')
 		def s_find():
 			"""find a string in the document"""
-			self.config.show_ui(group_requested=CONF_GROUP_FIND, titlebar=u'Find')
+			self.config.show_ui(groups_requested=[CONF_GROUP_FIND], titlebar=u'Find')
+		def s_replace():
+			"""find a string in the document"""
+			self.config.show_ui(groups_requested=[CONF_GROUP_FIND, CONF_GROUP_REPLACE], titlebar=u'Replace')
 		# read settings
 		self.titlebar = Titlebar('document', u'EasyEdit')
 		self.config = Settings(CONF_DB, CONFFILE, self.titlebar)
@@ -767,10 +783,10 @@ class Editor:
 				(u'Find', s_find),
 		#		(u'Find next', s_find_next),
 		#		(u'Find previous', s_find_prev),
-		#		(u'Replace', s_replace),
+				(u'Replace', s_replace),
 				(u'Go to line', s_go_to_line),
 			)),
-			(u'Settings', lambda : self.config.show_ui(group_requested=CONF_GROUP_MAIN, callback=self.refresh)),	# show all CONF_GROUP_MAIN settings
+			(u'Settings', lambda : self.config.show_ui(groups_requested=[CONF_GROUP_MAIN], callback=self.refresh)),	# show all CONF_GROUP_MAIN settings
 			(u'Help', (
 		#		(u'Open README', self.h_readme),
 				(u'About EasyEdit', lambda : query(unicode(self.__doc__), 'query')),
