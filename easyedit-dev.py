@@ -182,12 +182,21 @@ class Statusbar (object):
 		# needs to be optimised to not update screen if nothing changes
 		image = Image.new(self.window.size)
 		image.rectangle((0, 0, self.window.size[0], self.window.size[1]), fill=self.config[CONF_FONT_COLOUR], outline=None)
-		image.text(
-			(2, self.window.size[1]/2 + 2),
-			self.message,
-			0xFFFFFF, # text colour
-			(unicode(self.config[CONF_FONT]), None, (self.config[CONF_FONT_ANTIALIAS] == 'yes') and FONT_ANTIALIAS)
-		)
+		coords = (2, self.window.size[1]/2 + 2)
+		# if a config has been passed to this object uses its font settings
+		if self.config != None:
+			image.text(
+				coords,
+				self.message,
+				0xFFFFFF,
+				(unicode(self.config[CONF_FONT]), None, (self.config[CONF_FONT_ANTIALIAS] == 'yes') and FONT_ANTIALIAS)
+			)
+		else:
+			image.text(
+				coords,
+				self.message,
+				0xFFFFFF
+			)
 		self.window.add_image(image, (0, 0))
 		
 	def __getMessage(self):
