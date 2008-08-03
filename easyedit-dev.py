@@ -152,8 +152,10 @@ class Statusbar (object):
 	hasFocus = 0
 	__enabled = 1
 	__message = None
+	config = None
 	
-	def __init__(self, message=u'', size=None, position=None, enabled=1):
+	def __init__(self, config, message=u'', size=None, position=None, enabled=1):
+		self.config = config
 		self.window = TopWindow()
 		if size:
 			self.window.size = size
@@ -163,7 +165,6 @@ class Statusbar (object):
 		self.message = message	# this will trigger the update of the window
 		externalFocusHandler = app.focus
 		def focusHandler(f):
-			print f
 			if f and not(self.hasFocus):	# if we have just got focus
 				self.hasFocus = 1
 				if self.__enabled:
@@ -177,12 +178,16 @@ class Statusbar (object):
 		self.show()	# display the window by default
 		
 	def update(self, force=0):
+		"""draw message in window"""
 		# needs to be optimised to not update screen if nothing changes
-		# needs to use font specified in settings
-		# draw message in window
 		image = Image.new(self.window.size)
-		image.rectangle((0, 0, self.window.size[0], self.window.size[1]), fill=0x000000, outline=None)
-		image.text((2, self.window.size[1]/2 + 2), self.message, fill=0xFFFFFF)
+		image.rectangle((0, 0, self.window.size[0], self.window.size[1]), fill=self.config[CONF_FONT_COLOUR], outline=None)
+		image.text(
+			(2, self.window.size[1]/2 + 2),
+			self.message,
+			0xFFFFFF, # text colour
+			(unicode(self.config[CONF_FONT]), None, (self.config[CONF_FONT_ANTIALIAS] == 'yes') and FONT_ANTIALIAS)
+		)
 		self.window.add_image(image, (0, 0))
 		
 	def __getMessage(self):
@@ -771,7 +776,7 @@ class Editor:
 		app.orientation = self.config[CONF_ORIENTATION]
 		statusbar = None
 		if self.config[CONF_LINE_NUMBERS] == 'yes':
-			statusbar = Statusbar(size=(120, 26), position=(60, 294))
+			statusbar = Statusbar(self.config, size=(120, 26), position=(60, 294))
 		# create editor environment
 		self.text = Text()
 		self.path = None
