@@ -22,7 +22,7 @@ Released under GPLv2 (See COPYING.txt)
 
 # Settings
 VERSION=(2, 0, 7)
-DEBUG = False
+DEBUG = 0
 CONFFILE='C:\\SYSTEM\\Data\\EasyEdit.conf.dev'
 BUSY_MESSAGE = u'[busy]'
 
@@ -98,7 +98,7 @@ class Titlebar (object):
 	
 	def __init__(self, id='default', default=app.title):
 		self.__title = unicode(default)
-		self.running = False
+		self.running = 0
 		self.current_id = id
 	
 	def temporary(self, message):
@@ -128,11 +128,11 @@ class Titlebar (object):
 	
 	def run(self, id, message, function, separator=u' > '):
 		"""Execute a function while appending a message to the Titlebar"""
-		return self.__run(False, id, message, function)
+		return self.__run(0, id, message, function)
 	
 	def run_no_path(self, id, message, function, separator=u' > '):
 		"""Execute a function while displaying a message on the Titlebar"""
-		return self.__run(True, id, message, function)
+		return self.__run(1, id, message, function)
 	
 	def prepend(self, id, message):
 		"""temporarily prepends a string to the current titlebat text"""
@@ -149,11 +149,11 @@ class Statusbar (object):
 	"""A class that displays a message in a S60 TopWindow"""
 	
 	window = None
-	hasFocus = False
-	__enabled = True
+	hasFocus = 0
+	__enabled = 1
 	__message = None
 	
-	def __init__(self, message=u'', size=None, position=None, enabled=True):
+	def __init__(self, message=u'', size=None, position=None, enabled=1):
 		self.window = TopWindow()
 		if size:
 			self.window.size = size
@@ -163,19 +163,20 @@ class Statusbar (object):
 		self.message = message	# this will trigger the update of the window
 		externalFocusHandler = app.focus
 		def focusHandler(f):
+			print f
 			if f and not(self.hasFocus):	# if we have just got focus
-				self.hasFocus = True
+				self.hasFocus = 1
 				if self.__enabled:
 					self.window.show()
-			if not(f) and self.hasFocus:	# if we just lost focus
-				self.hasFocus = False
+			elif not(f) and self.hasFocus:	# if we just lost focus
+				self.hasFocus = 0
 				self.window.hide()
 			if externalFocusHandler:
 				externalFocusHandler(f)
 		app.focus = focusHandler
 		self.show()	# display the window by default
 		
-	def update(self, force=False):
+	def update(self, force=0):
 		# needs to be optimised to not update screen if nothing changes
 		# needs to use font specified in settings
 		# draw message in window
@@ -206,24 +207,24 @@ class Statusbar (object):
 	
 	def show(self):
 		self.window.show()
-		self.__enabled = True
+		self.__enabled = 1
 	
 	def hide(self):
 		self.window.hide()
-		self.__enabled = False
+		self.__enabled = 0
 
 
 class Settings (dict):
 	"""Settings manager"""
 	
-	saveRequired = False
+	saveRequired = 0
 	db = None
 	path = None
 	exit = Ao_lock()
 	
 	def __setitem__(self, key, value):
 		"""equivalent to dict.__setitem__ but flags saveRequired"""
-		self.saveRequired = True
+		self.saveRequired = 1
 		dict.__setitem__(self, key, value)
 	
 	def __init__(self, db, path, titlebar=Titlebar('settings')):
@@ -233,7 +234,7 @@ class Settings (dict):
 		self.db = db
 		# create a new configuration if one does not exist
 		existing_conf = isfile(self.path)
-		self.keep_config = False
+		self.keep_config = 0
 		if existing_conf:
 			try:
 				# read the config file from disk
@@ -248,7 +249,7 @@ class Settings (dict):
 					print("Cannot read config file " + self.path)
 				note(u'Error reading settings', 'error')
 				self.keep_config = not(query(u'Reset settings?', 'query'))
-				existing_conf = False
+				existing_conf = 0
 		if not(existing_conf):
 			if DEBUG:
 				print("Creating new config...")
@@ -265,8 +266,8 @@ class Settings (dict):
 				f = open(self.path, 'w')
 				f.write(repr(self))
 				f.close()
-				self.saveRequired = False
-				self.keep_config = False
+				self.saveRequired = 0
+				self.keep_config = 0
 			except:
 				note(u'Error saving config', 'error')
 		elif DEBUG:
@@ -321,7 +322,7 @@ class Settings (dict):
 					else:
 						options = [unicode(option) for option in options]
 						options.sort()
-						selection = selection_list(choices=options, search_field=True)
+						selection = selection_list(choices=options, search_field=1)
 					if selection != None:
 						self[id] = str(options[selection])
 				elif DEBUG:
@@ -378,7 +379,7 @@ class Filebrowser (Directory_iter):
 		if initial_dir != '\\':
 			if isdir(initial_dir):
 				self.path = initial_dir
-				self.at_root = False
+				self.at_root = 0
 				# go up a directory if directory current is empty - listbox cannot display empty lists!
 				if len(self.list_repr()) == 0:
 					self.pop()
@@ -411,9 +412,9 @@ class Filebrowser (Directory_iter):
 			self.pop()
 			self.refresh_ui(current=0)
 	
-	def show_ui(self, allow_directory=False):
+	def show_ui(self, allow_directory=0):
 		"""show the file browser - returns the path selected
-		allow_directory = True allows a directory to be selected"""
+		allow_directory = 1 allows a directory to be selected"""
 		def show_ui():
 			self.return_path = None
 			def descend():
@@ -463,18 +464,18 @@ class Filebrowser (Directory_iter):
 			def delete_file():
 				path = self.entry(self.listbox.current())
 				if query(u'Delete ' + unicode(basename(path)) + u'?', 'query'):
-					change_made = False
+					change_made = 0
 					if isfile(path):
 						try:
 							remove(path)
-							change_made = True
+							change_made = 1
 						except:
 							note(u'Error delecting file', 'error')
 					elif isdir(path):
 						if len(listdir(path)) == 0:
 							try:
 								rmdir(normpath(path))
-								change_made = True
+								change_made = 1
 							except:
 								note(u'Error deleting directory', 'error')
 						else:
@@ -528,7 +529,7 @@ class Editor:
 	
 	titlebar = None
 	config = None
-	hasFocus = False
+	hasFocus = 0
 	filebrowser = None
 	__document_lock = None
 	text = None
@@ -537,7 +538,7 @@ class Editor:
 		"""Used to replace S60 UI newline characters with normal \n"""
 		return text.replace(u'\u2029',u'\n')
 
-	def __open_document(self, path, read_from_disk=True):
+	def __open_document(self, path, read_from_disk=1):
 		"""Open a document by reading from disk, and showing "busy" status.
 		Locks until called again"""
 		oldpath = self.path
@@ -545,7 +546,7 @@ class Editor:
 		if self.__document_lock != None:
 			self.__document_lock.signal()
 		def open_document():
-			error = False
+			error = 0
 			if read_from_disk:
 				# show "busy" message
 				self.titlebar.prepend('document', BUSY_MESSAGE + u' ')
@@ -567,8 +568,8 @@ class Editor:
 						self.config[CONF_HISTORY].remove(path)
 						self.config.save()
 					# fallback to the previous document if there was an error
-					self.__open_document(oldpath, read_from_disk=False)
-					error = True
+					self.__open_document(oldpath, read_from_disk=0)
+					error = 1
 			if not(error):
 				self.__document_lock = Ao_lock()
 				#self.__document_lock.wait()	# seems to block UI! =(
@@ -586,18 +587,22 @@ class Editor:
 		"""Start EasyEdit"""
 		def exitHandler():
 			"""Stop EasyEdit"""
-			self.running = False
+			self.running = 0
 		focusLock = Ao_lock()
+		externalFocusHandler = app.focus
 		def focusHandler(f):
 			if f and not(self.hasFocus):	# if we have just got focus
-				self.hasFocus = True
+				self.hasFocus = 1
 				focusLock.signal()
 			if not(f) and self.hasFocus:	# if we just lost focus
-				self.hasFocus = False
+				self.hasFocus = 0
+			if externalFocusHandler:
+				externalFocusHandler(f)
+		app.focus = focusHandler
 		def save_query():
 			"""check if file needs saving and prompt user if necessary - returns user reponse"""
-			save = False
-			save_required = True
+			save = 0
+			save_required = 1
 			current_text = self.text.get()
 			if self.exists():
 				# read file and compare to current
@@ -605,19 +610,19 @@ class Editor:
 				saved_text = f.read()
 				f.close()
 				if saved_text == self.encode(current_text):
-					save_required = False
+					save_required = 0
 			elif len(current_text) == 0:
-				save_required = False
+				save_required = 0
 			if save_required:
 				if DEBUG:
 					print("Save required")
 				save = popup_menu([u'Yes', u'No'], u'Save file?')
 				if save != None:
 					save = not(save)	# because 0 => 'yes' option, 1 => 'no' option
-					if save == True:
+					if save == 1:
 						f_save()
 			return save
-		def f_new(force=False):
+		def f_new(force=0):
 			"""start a new, blank document"""
 			if force or save_query() != None:
 				self.text.clear()
@@ -676,7 +681,7 @@ class Editor:
 				app.exit_key_handler = previous_exit_key_handler
 			else:
 				note(u'No recent documents', 'info')
-		def f_save(force=False):
+		def f_save(force=0):
 			"""save the current file - force skips exist check"""
 			if force or self.exists():
 				# show "busy" message
@@ -699,7 +704,7 @@ class Editor:
 			path = None
 			if self.filebrowser == None:
 				self.filebrowser = Filebrowser(self.config[CONF_LAST_DIR], self.titlebar)
-			path = self.filebrowser.show_ui(allow_directory=True)
+			path = self.filebrowser.show_ui(allow_directory=1)
 			if path != None:
 				# assume a directory has been selected -  suggest a filename in the current directory
 				new_file_location = dirname(path)
@@ -720,15 +725,15 @@ class Editor:
 					self.path = join(new_file_location, new_filename)
 					self.__save_last_dir(self.path)
 					# check if file already exists and ask if it should be replaced
-					save_possible = False
+					save_possible = 0
 					if isfile(self.path):
 						save_possible = query(u'Overwite file?', 'query')
 					elif isdir(self.path):
 						note(u'Not saved: A directory exists with that name', 'info')
 					else:
-						save_possible = True
+						save_possible = 1
 					if save_possible:
-						f_save(force=True)	# force prevents another call to f_save_as
+						f_save(force=1)	# force prevents another call to f_save_as
 		def s_go_to_line():
 			"""move cursor to beginning of specified line number"""
 			text = self.__newline_fix(self.text.get())
@@ -752,7 +757,7 @@ class Editor:
 		# read settings
 		self.titlebar = Titlebar('document', u'EasyEdit')
 		self.config = Settings(CONF_DB, CONFFILE, self.titlebar)
-		self.hasFocus = True
+		self.hasFocus = 1
 		# save current state
 		old_title = app.title
 		old_screen = app.screen
@@ -799,12 +804,11 @@ class Editor:
 		app.body = self.text
 		ao_yield()
 		app.exit_key_handler = exitHandler
-		app.focus = focusHandler
 		# set the 'dial' key to save document
 		self.text.bind(EKeyYes, f_save)
 		quit_app = None
 		while quit_app == None:
-			self.running = True
+			self.running = 1
 			while self.running:
 				# display line numbers if enabled
 				if self.hasFocus:
