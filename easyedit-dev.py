@@ -21,7 +21,7 @@ Released under GPLv2 (See COPYING.txt)
 
 
 # Settings
-VERSION=(2, 0, 7)
+VERSION=(2, 0, 8)
 DEBUG = 0
 CONFFILE='C:\\SYSTEM\\Data\\EasyEdit.conf.dev'
 BUSY_MESSAGE = u'[busy]'
@@ -53,6 +53,7 @@ CONF_LINE_NUMBERS		= 'line numbers'
 # search settings keys
 CONF_FIND_CASE_SENSITIVE	= 'case-sensitive search'
 CONF_FIND_TEXT			= 'search text'
+CONF_FIND_DIRECTION		= 'search direction'
 CONF_FIND_REGEXP		= 'regular expression'
 CONF_REPLACE_TEXT		= 'replace text'
 
@@ -78,6 +79,7 @@ CONF_DB = [
 	(CONF_ORIENTATION,		CONF_GROUP_MAIN,	'Screen orientation',	'automatic',		3,			['automatic', 'portrait', 'landscape'],		(app, 'orientation')		),
 	(CONF_FIND_TEXT,		CONF_GROUP_FIND,	'Search text',		'',			1,			unicode,					None				),
 	(CONF_REPLACE_TEXT,		CONF_GROUP_REPLACE,	'Replace text',		'',			1,			unicode,					None				),
+	(CONF_FIND_DIRECTION,		CONF_GROUP_FIND,	'Search direction',	'all',			1,			['all', 'next', 'previous'],		None				),
 	(CONF_FIND_CASE_SENSITIVE,	CONF_GROUP_FIND,	'Case sensitive find',	'no',			1,			['yes', 'no'],					None				),
 	(CONF_FIND_REGEXP,		CONF_GROUP_FIND,	'Regular expression',	'no',			1,			['yes', 'no'],					None				),
 ]
@@ -154,7 +156,7 @@ class Statusbar (object):
 	__message = None
 	config = None
 	
-	def __init__(self, config, message=u'', size=None, position=None, enabled=1):
+	def __init__(self, config=None, message=u'', size=None, position=None, enabled=1):
 		self.config = config
 		self.window = TopWindow()
 		if size:
@@ -310,10 +312,10 @@ class Settings (dict):
 		elif DEBUG:
 			print("Settings: update: No list to update!")
 
-	def show_ui(self, groups_requested=[], callback=None, titlebar=u'Settings'):
+	def show_ui(self, groups_requested=[], callback=None, titlebar=u'Edit', menu_items=[]):
 		"""Create and show a settings editor"""
 		def show():
-			def _modify(selected):
+			def modify(selected):
 				"""edit a setting"""
 				(id, description, options, action, supported_s60_version) = [(id, description, options, action, s60)
 					for (id,group,description,default,s60,options,action) 
@@ -331,14 +333,17 @@ class Settings (dict):
 					if selection != None:
 						self[id] = selection
 				elif options.__class__ == list:
-					if len(options) <= 4:
+					n_options = len(options)
+					if n_options == 2:	# if there are only 2 options
+						selection = (options.index(self[id]) + 1) % 2	# select the other option
+					elif n_options > 2 and n_options <= 4:
 						selection = popup_menu([unicode(option).capitalize() for option in options], unicode(description))
 					else:
 						options = [unicode(option) for option in options]
 						options.sort()
 						selection = selection_list(choices=options, search_field=1)
 					if selection != None:
-						self[id] = str(options[selection])
+						self[id] = options[selection]
 				elif DEBUG:
 					print("Settings : Unsupported type " + str(options.__class__))
 				self.refresh_ui(self.__currentSettingsList(groups_requested))
@@ -351,7 +356,7 @@ class Settings (dict):
 						setattr(action[0], action[1], self[id])
 					except:
 						note(u'Error setting ' + unicode(description), 'error')
-			self.settings_list = Listbox([(u'dummy',u'item')], lambda: _modify(self.settings_list.current()))
+			self.settings_list = Listbox([(u'dummy',u'item')], lambda: modify(self.settings_list.current()))
 			self.refresh_ui(self.__currentSettingsList(groups_requested))
 			# save previous application state
 			previous_body = app.body
@@ -359,10 +364,10 @@ class Settings (dict):
 			previous_exit_key_handler = app.exit_key_handler
 			# show the settings editor
 			app.body = self.settings_list
-			self.settings_list.bind(EKeyEdit, lambda: _modify(self.settings_list.current()))
+			self.settings_list.bind(EKeyEdit, lambda: modify(self.settings_list.current()))
 			self.settings_list.bind(EKeyYes, self.exit.signal)
-			app.menu =[
-				(u'Modify', lambda: _modify(self.settings_list.current())),
+			app.menu = menu_items + [
+				(u'Modify', lambda: modify(self.settings_list.current())),
 				(u'Close', self.exit.signal),
 			]
 			app.exit_key_handler = self.exit.signal
@@ -764,10 +769,29 @@ class Editor:
 					note(u'Invalid line number', 'error')
 		def s_find():
 			"""find a string in the document"""
-			self.config.show_ui(groups_requested=[CONF_GROUP_FIND], titlebar=u'Find')
+			def find():
+				self.config.save()
+				# need to move cursor to found text
+			self.config.show_ui(groups_requested=[CONF_GROUP_FIND], titlebar=u'Find', menu_items=[(u'Search',find)])
 		def s_replace():
-			"""find a string in the document"""
-			self.config.show_ui(groups_requested=[CONF_GROUP_FIND, CONF_GROUP_REPLACE], titlebar=u'Replace')
+			"""replace all matching strings in the document"""
+			def replace():
+				self.config.save()
+				cursor_position = self.text.get_pos()
+				current_text = self.text.get()
+				find_text = self.config[CONF_FIND_TEXT]
+				if self.config[CONF_FIND_CASE_SENSITIVE] == 'no':
+					current_text = current_text.lower()
+					find_text = find_text.lower()
+				self.titlebar.prepend('settings', BUSY_MESSAGE)
+				new_text = current_text.replace(find_text, self.config[CONF_REPLACE_TEXT])
+				self.text.set(new_text)
+				if cursor_position > len(new_text):
+					cursor_position = len(new_text)
+				self.text.set_pos(cursor_position)
+				self.config.exit.signal()
+				self.titlebar.refresh()
+			self.config.show_ui(groups_requested=[CONF_GROUP_FIND, CONF_GROUP_REPLACE], titlebar=u'Replace', menu_items=[(u'Replace',replace)])
 		# read settings
 		self.titlebar = Titlebar('document', u'EasyEdit')
 		self.config = Settings(CONF_DB, CONFFILE, self.titlebar)
