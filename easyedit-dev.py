@@ -60,28 +60,29 @@ CONF_REPLACE_TEXT		= 'replace text'
 # config groups keys
 CONF_GROUP_MAIN			= 'main'
 CONF_GROUP_FIND			= 'find'
+CONF_GROUP_FIND_DIRECTION	= 'find direction'
 CONF_GROUP_REPLACE		= 'replace'
 
 CONF_DB = [
-	# id				group			description		default			min. s60_version	options (None => no dialog)			(a,'b') => a.b = option
-	(CONF_VERSION,			CONF_GROUP_MAIN,	'Version',		VERSION,		1,			None,						None				),
-	(CONF_ENCODING,			CONF_GROUP_MAIN,	'File encoding',	getdefaultencoding(),	1,			[unicode(enc) for enc in aliases.aliases],	None				),
-	(CONF_NEW_LINES,		CONF_GROUP_MAIN,	'New lines',		'unix',			1,			['unix', 'windows'],				None				),
-	(CONF_FONT,			CONF_GROUP_MAIN,	'Font',			Text().font[0],		1,			available_fonts(),				None				),
-	(CONF_FONT_SIZE,		CONF_GROUP_MAIN,	'Font size',		15,			2,			int,						None				),
-	(CONF_FONT_COLOUR,		CONF_GROUP_MAIN,	'Font colour',		(0,0,0),		1,			None,						None				),
-	(CONF_FONT_ANTIALIAS,		CONF_GROUP_MAIN,	'Font anti-aliasing',	'no',			2,			['yes', 'no'],					None				),
-	(CONF_LINE_NUMBERS,		CONF_GROUP_MAIN,	'Display line number',	'yes',			1,			['yes', 'no'],					None				),
-	(CONF_LAST_DIR,			CONF_GROUP_MAIN,	'Last used directory',	'\\',			1,			None,						None				),
-	(CONF_HISTORY,			CONF_GROUP_MAIN,	'History',		[],			1,			None,						None				),
-	(CONF_HISTORY_SIZE,		CONF_GROUP_MAIN,	'Max history size',	8,			1,			int,						None				),
-	(CONF_SCREEN,			CONF_GROUP_MAIN,	'Screen Size',		'normal',		1,			['large', 'normal', 'full'],			(app, 'screen')			),
-	(CONF_ORIENTATION,		CONF_GROUP_MAIN,	'Screen orientation',	'automatic',		3,			['automatic', 'portrait', 'landscape'],		(app, 'orientation')		),
-	(CONF_FIND_TEXT,		CONF_GROUP_FIND,	'Search text',		'',			1,			unicode,					None				),
-	(CONF_REPLACE_TEXT,		CONF_GROUP_REPLACE,	'Replace text',		'',			1,			unicode,					None				),
-	(CONF_FIND_DIRECTION,		CONF_GROUP_FIND,	'Search direction',	'all',			1,			['all', 'next', 'previous'],			None				),
-	(CONF_FIND_CASE_SENSITIVE,	CONF_GROUP_FIND,	'Case sensitive find',	'no',			1,			['yes', 'no'],					None				),
-	(CONF_FIND_REGEXP,		CONF_GROUP_FIND,	'Regular expression',	'no',			1,			['yes', 'no'],					None				),
+	# id				group				description		default			min. s60_version	options (None => no dialog)			(a,'b') => a.b = option
+	(CONF_VERSION,			CONF_GROUP_MAIN,		'Version',		VERSION,		1,			None,						None				),
+	(CONF_ENCODING,			CONF_GROUP_MAIN,		'File encoding',	getdefaultencoding(),	1,			[unicode(enc) for enc in aliases.aliases],	None				),
+	(CONF_NEW_LINES,		CONF_GROUP_MAIN,		'New lines',		'unix',			1,			['unix', 'windows'],				None				),
+	(CONF_FONT,			CONF_GROUP_MAIN,		'Font',			Text().font[0],		1,			available_fonts(),				None				),
+	(CONF_FONT_SIZE,		CONF_GROUP_MAIN,		'Font size',		15,			2,			int,						None				),
+	(CONF_FONT_COLOUR,		CONF_GROUP_MAIN,		'Font colour',		(0,0,0),		1,			None,						None				),
+	(CONF_FONT_ANTIALIAS,		CONF_GROUP_MAIN,		'Font anti-aliasing',	'no',			2,			['yes', 'no'],					None				),
+	(CONF_LINE_NUMBERS,		CONF_GROUP_MAIN,		'Display line number',	'yes',			1,			['yes', 'no'],					None				),
+	(CONF_LAST_DIR,			CONF_GROUP_MAIN,		'Last used directory',	'\\',			1,			None,						None				),
+	(CONF_HISTORY,			CONF_GROUP_MAIN,		'History',		[],			1,			None,						None				),
+	(CONF_HISTORY_SIZE,		CONF_GROUP_MAIN,		'Max history size',	8,			1,			int,						None				),
+	(CONF_SCREEN,			CONF_GROUP_MAIN,		'Screen Size',		'normal',		1,			['large', 'normal', 'full'],			(app, 'screen')			),
+	(CONF_ORIENTATION,		CONF_GROUP_MAIN,		'Screen orientation',	'automatic',		3,			['automatic', 'portrait', 'landscape'],		(app, 'orientation')		),
+	(CONF_FIND_TEXT,		CONF_GROUP_FIND,		'Search text',		'',			1,			unicode,					None				),
+	(CONF_REPLACE_TEXT,		CONF_GROUP_REPLACE,		'Replace text',		'',			1,			unicode,					None				),
+	(CONF_FIND_DIRECTION,		CONF_GROUP_FIND_DIRECTION,	'Search direction',	'all',			1,			['all', 'next', 'previous'],			None				),
+	(CONF_FIND_CASE_SENSITIVE,	CONF_GROUP_FIND,		'Case sensitive find',	'no',			1,			['yes', 'no'],					None				),
+	(CONF_FIND_REGEXP,		CONF_GROUP_FIND,		'Regular expression',	'no',			1,			['yes', 'no'],					None				),
 ]
 
 class Titlebar (object):
@@ -237,8 +238,6 @@ class Settings (dict):
 					for (id,group,description,default,s60,options,action) 
 					in self.__currentSettingsList(groups_requested)
 					][selected]
-				# save a copy of current config
-				oldconfig = self.copy()
 				# display options
 				selection = None
 				if options.__class__ == type:
@@ -265,9 +264,7 @@ class Settings (dict):
 				elif DEBUG:
 					print("Settings : Unsupported type " + str(options.__class__))
 				self.refresh_ui(self.__currentSettingsList(groups_requested))
-				# save if any changes have been made
-				if oldconfig != self:
-					self.save()
+				self.saveRequired = 1
 				# run any immediate action if one has been defined
 				if action != None and s60_version_info[0] >= supported_s60_version:
 					try:
@@ -291,6 +288,8 @@ class Settings (dict):
 			app.exit_key_handler = self.exit.signal
 			# wait for a signal to exit the settings editor
 			self.exit.wait()
+			# sve any changes
+			self.save()
 			# exit the editor
 			app.body = previous_body
 			app.menu = previous_menu
@@ -689,8 +688,24 @@ class Editor:
 			"""find a string in the document"""
 			def find():
 				self.config.save()
-				# need to move cursor to found text
-			self.config.show_ui(groups_requested=[CONF_GROUP_FIND], titlebar=u'Find', menu_items=[(u'Search',find)])
+				cursor_position = self.text.get_pos()
+				text = self.__newline_fix(self.text.get())
+				search_text = self.config[CONF_FIND_TEXT]
+				if self.config[CONF_FIND_CASE_SENSITIVE] == 'no':
+					text = text.lower()
+					search_text = search_text.lower()
+				if self.config[CONF_FIND_DIRECTION] == 'next':
+					cursor_position = text.find(search_text, cursor_position + 1)
+				elif self.config[CONF_FIND_DIRECTION] == 'previous':
+					cursor_position = text.rfind(search_text, 0, cursor_position - 1)
+				else:	# search all
+					cursor_position = text.find(search_text)
+				if cursor_position != -1:
+					self.text.set_pos(cursor_position)
+					self.config.exit.signal()
+				else:
+					note(u'Search text not found', 'info')
+			self.config.show_ui(groups_requested=[CONF_GROUP_FIND, CONF_GROUP_FIND_DIRECTION], titlebar=u'Find', menu_items=[(u'Search',find)])
 		def s_replace():
 			"""replace all matching strings in the document"""
 			def replace():
@@ -704,12 +719,13 @@ class Editor:
 				self.titlebar.prepend('settings', BUSY_MESSAGE)
 				new_text = current_text.replace(find_text, self.config[CONF_REPLACE_TEXT])
 				self.text.set(new_text)
+				note(unicode(current_text.count(find_text)) + " matches replaces", 'info')
 				if cursor_position > len(new_text):
 					cursor_position = len(new_text)
 				self.text.set_pos(cursor_position)
 				self.config.exit.signal()
 				self.titlebar.refresh()
-			self.config.show_ui(groups_requested=[CONF_GROUP_FIND, CONF_GROUP_REPLACE], titlebar=u'Replace', menu_items=[(u'Replace',replace)])
+			self.config.show_ui(groups_requested=[CONF_GROUP_FIND, CONF_GROUP_REPLACE], titlebar=u'Replace', menu_items=[(u'Replace all',replace)])
 		# read settings
 		self.titlebar = Titlebar('document', u'EasyEdit')
 		self.config = Settings(CONF_DB, CONFFILE, self.titlebar)
