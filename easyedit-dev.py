@@ -279,12 +279,12 @@ class Settings (dict):
 			previous_exit_key_handler = app.exit_key_handler
 			# show the settings editor
 			app.body = self.settings_list
-			self.settings_list.bind(EKeyEdit, lambda: modify(self.settings_list.current()))
-			self.settings_list.bind(EKeyYes, self.exit.signal)
 			app.menu = menu_items + [
 				(u'Modify', lambda: modify(self.settings_list.current())),
 				(u'Close', self.exit.signal),
 			]
+			self.settings_list.bind(EKeyEdit, lambda: modify(self.settings_list.current()))
+			self.settings_list.bind(EKeyYes, app.menu[0][1])	# set call key to do first action in menu
 			app.exit_key_handler = self.exit.signal
 			# wait for a signal to exit the settings editor
 			self.exit.wait()
@@ -725,7 +725,7 @@ class Editor:
 				self.text.set_pos(cursor_position)
 				self.config.exit.signal()
 				self.titlebar.refresh()
-			self.config.show_ui(groups_requested=[CONF_GROUP_FIND, CONF_GROUP_REPLACE], titlebar=u'Replace', menu_items=[(u'Replace all',replace)])
+			self.config.show_ui(groups_requested=[CONF_GROUP_FIND, CONF_GROUP_REPLACE], titlebar=u'Replace', menu_items=[(u'Replace all', replace)])
 		# read settings
 		self.titlebar = Titlebar('document', u'EasyEdit')
 		self.config = Settings(CONF_DB, CONFFILE, self.titlebar)
@@ -760,7 +760,7 @@ class Editor:
 				(u'Replace', s_replace),
 				(u'Go to line', s_go_to_line),
 			)),
-			(u'Settings', lambda : self.config.show_ui(groups_requested=[CONF_GROUP_MAIN], callback=self.refresh)),	# show all CONF_GROUP_MAIN settings
+			(u'Settings', lambda : self.config.show_ui(groups_requested=[CONF_GROUP_MAIN], callback=self.refresh, menu_items=[(u'Return to editor', self.config.exit.signal)])),	# show all CONF_GROUP_MAIN settings
 			(u'Help', (
 		#		(u'Open README', self.h_readme),
 				(u'About EasyEdit', lambda : query(unicode(self.__doc__), 'query')),
