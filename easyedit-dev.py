@@ -23,13 +23,13 @@ Released under GPLv2 (See COPYING.txt)
 # Settings
 VERSION=(2, 0, 8)
 DEBUG = 0
-CONFFILE='C:\\SYSTEM\\Data\\EasyEdit.conf.dev'
+CONFFILE='C:\\SYSTEM\\Data\\EasyEdit\\settings.conf.dev'
 BUSY_MESSAGE = u'[busy]'
 
 from appuifw import *
 from key_codes import EKeyLeftArrow, EKeyRightArrow, EKeyBackspace, EKey1, EKey2, EKeyEdit, EKeyYes
 from e32 import Ao_lock, ao_yield, ao_sleep, s60_version_info, drive_list
-from os import rename, mkdir, remove, rmdir, listdir
+from os import rename, mkdir, makedirs, remove, rmdir, listdir
 from os.path import exists, isfile, isdir, join, basename, dirname, normpath
 from sys import getdefaultencoding, exc_info
 from encodings import aliases
@@ -146,6 +146,7 @@ class Settings (dict):
 	"""Settings manager"""
 	
 	saveRequired = 0
+	keep_config = 0
 	db = None
 	path = None
 	exit = Ao_lock()
@@ -160,9 +161,8 @@ class Settings (dict):
 		self.titlebar = titlebar
 		self.path = path
 		self.db = db
-		# create a new configuration if one does not exist
+		# create a new configuration in memory if one does not exist
 		existing_conf = isfile(self.path)
-		self.keep_config = 0
 		if existing_conf:
 			try:
 				# read the config file from disk
@@ -179,10 +179,14 @@ class Settings (dict):
 				self.keep_config = not(query(u'Reset settings?', 'query'))
 				existing_conf = 0
 		if not(existing_conf):
-			if DEBUG:
-				print("Creating new config...")
+			note(u"Creating new configuration", 'info')
 			# set current settings to these defaults
 			self.update(dict([(id, default) for (id,group,description,default,s60,options,action) in self.db]))
+			# create the folder containing config if it does not exist
+			conf_folder = dirname(self.path)
+			if not(exists(conf_folder)):
+				makedirs(conf_folder)
+			self.saveRequired = 1
 			self.save()
 
 	def save(self):
