@@ -79,11 +79,10 @@ CONF_DB = [
 	(CONF_ORIENTATION,		CONF_GROUP_MAIN,	'Screen orientation',	'automatic',		3,			['automatic', 'portrait', 'landscape'],		(app, 'orientation')		),
 	(CONF_FIND_TEXT,		CONF_GROUP_FIND,	'Search text',		'',			1,			unicode,					None				),
 	(CONF_REPLACE_TEXT,		CONF_GROUP_REPLACE,	'Replace text',		'',			1,			unicode,					None				),
-	(CONF_FIND_DIRECTION,		CONF_GROUP_FIND,	'Search direction',	'all',			1,			['all', 'next', 'previous'],		None				),
+	(CONF_FIND_DIRECTION,		CONF_GROUP_FIND,	'Search direction',	'all',			1,			['all', 'next', 'previous'],			None				),
 	(CONF_FIND_CASE_SENSITIVE,	CONF_GROUP_FIND,	'Case sensitive find',	'no',			1,			['yes', 'no'],					None				),
 	(CONF_FIND_REGEXP,		CONF_GROUP_FIND,	'Regular expression',	'no',			1,			['yes', 'no'],					None				),
 ]
-# need to make CONF_LINE_NUMBERS create/hide Statusbar object
 
 class Titlebar (object):
 	"""A class to manage the S60 Titlebar"""		
@@ -141,93 +140,6 @@ class Titlebar (object):
 		if self.current_id == id:
 			app.title = unicode(message) + self.title
 			ao_yield()
-
-
-from appuifw import app
-from topwindow import TopWindow
-from graphics import Image
-
-class Statusbar (object):
-	"""A class that displays a message in a S60 TopWindow"""
-	
-	window = None
-	hasFocus = 0
-	__enabled = 1
-	__message = None
-	config = None
-	
-	def __init__(self, config=None, message=u'', size=None, position=None, enabled=1):
-		self.config = config
-		self.window = TopWindow()
-		if size:
-			self.window.size = size
-		if position:
-			self.window.position = position
-		self.__enabled = enabled
-		self.message = message	# this will trigger the update of the window
-		externalFocusHandler = app.focus
-		def focusHandler(f):
-			if f and not(self.hasFocus):	# if we have just got focus
-				self.hasFocus = 1
-				if self.__enabled:
-					self.window.show()
-			elif not(f) and self.hasFocus:	# if we just lost focus
-				self.hasFocus = 0
-				self.window.hide()
-			if externalFocusHandler:
-				externalFocusHandler(f)
-		app.focus = focusHandler
-		self.show()	# display the window by default
-		
-	def update(self, force=0):
-		"""draw message in window"""
-		# needs to be optimised to not update screen if nothing changes
-		image = Image.new(self.window.size)
-		image.rectangle((0, 0, self.window.size[0], self.window.size[1]), fill=self.config[CONF_FONT_COLOUR], outline=None)
-		coords = (2, self.window.size[1]/2 + 2)
-		# if a config has been passed to this object uses its font settings
-		if self.config != None:
-			image.text(
-				coords,
-				self.message,
-				0xFFFFFF,
-				(unicode(self.config[CONF_FONT]), None, (self.config[CONF_FONT_ANTIALIAS] == 'yes') and FONT_ANTIALIAS)
-			)
-		else:
-			image.text(
-				coords,
-				self.message,
-				0xFFFFFF
-			)
-		self.window.add_image(image, (0, 0))
-		
-	def __getMessage(self):
-		return self.__message
-	def __setMessage(self, value):
-		self.__message = unicode(value)
-		self.update()
-	message = property(fget=__getMessage, fset=__setMessage)
-	
-	def __getSize(self):
-		return self.window.size
-	def __setSize(self, value):
-		self.window.size = value
-		self.update()
-	size = property(fget=__getSize, fset=__setSize)
-	
-	def __getPosition(self):
-		return self.window.position
-	def __setPosition(self, value):
-		self.window.position = value
-	position = property(fget=__getPosition, fset=__setPosition)
-	
-	def show(self):
-		self.window.show()
-		self.__enabled = 1
-	
-	def hide(self):
-		self.window.hide()
-		self.__enabled = 0
 
 
 class Settings (dict):
@@ -334,7 +246,9 @@ class Settings (dict):
 						self[id] = selection
 				elif options.__class__ == list:
 					n_options = len(options)
-					if n_options == 2:	# if there are only 2 options
+					if n_options == 1:
+						selection == 0
+					elif n_options == 2:	# if there are only 2 options
 						selection = (options.index(self[id]) + 1) % 2	# select the other option
 					elif n_options > 2 and n_options <= 4:
 						selection = popup_menu([unicode(option).capitalize() for option in options], unicode(description))
@@ -807,9 +721,6 @@ class Editor:
 		# set up environment from settings
 		app.screen = self.config[CONF_SCREEN]
 		app.orientation = self.config[CONF_ORIENTATION]
-		statusbar = None
-		if self.config[CONF_LINE_NUMBERS] == 'yes':
-			statusbar = Statusbar(self.config, size=(120, 26), position=(60, 294))
 		# create editor environment
 		self.text = Text()
 		self.path = None
@@ -853,8 +764,6 @@ class Editor:
 					if self.config[CONF_LINE_NUMBERS] == 'yes':
 						n = self.__newline_fix(self.text.get()[:self.text.get_pos()]).count(u'\n')
 						self.titlebar.prepend('document', u'[' + unicode(n + 1) + '] ')
-						if self.config[CONF_LINE_NUMBERS] == 'yes':
-							statusbar.message = u'Line no: ' + unicode(n + 1)
 						ao_yield()
 					ao_sleep(0.2)	# refresh rate of line numbers (seconds)
 				else:
@@ -870,8 +779,6 @@ class Editor:
 		app.title = old_title
 		app.screen = old_screen
 		app.orientation = old_orientation
-		if self.config[CONF_LINE_NUMBERS] == 'yes':
-			statusbar.hide()
 		app.exit_key_handler = old_exit_key_handler
 		app.body = old_body
 		app.menu = old_menu
