@@ -20,790 +20,839 @@ Released under GPLv2 (See COPYING.txt)
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-import appuifw
-import dir_iter
-import os
-import os.path
-import encodings
-from sys import getdefaultencoding
-from e32 import Ao_lock, drive_list, ao_yield, ao_sleep
+# Settings
+VERSION=(2, 0, 8)
+DEBUG = 0
+CONFFILE='C:\\SYSTEM\\Data\\EasyEdit\\settings.conf'
+BUSY_MESSAGE = u'[busy]'
+
+from appuifw import *
 from key_codes import EKeyLeftArrow, EKeyRightArrow, EKeyBackspace, EKey1, EKey2, EKeyEdit, EKeyYes
+from e32 import Ao_lock, ao_yield, ao_sleep, s60_version_info, drive_list
+from os import rename, mkdir, makedirs, remove, rmdir, listdir
+from os.path import exists, isfile, isdir, join, basename, dirname, normpath
+from sys import getdefaultencoding, exc_info
+from encodings import aliases
+from graphics import FONT_ANTIALIAS
+
+# main configuration keys
+CONF_VERSION			= 'version'
+CONF_SCREEN			= 'screen size'
+CONF_ORIENTATION		= 'screen orentation'
+CONF_FONT			= 'font'
+CONF_FONT_SIZE			= 'font size'
+CONF_FONT_COLOUR		= 'font colour'
+CONF_FONT_ANTIALIAS		= 'font anti-aliasing'
+CONF_ENCODING			= 'encoding'
+CONF_HISTORY			= 'history'
+CONF_HISTORY_SIZE		= 'history size'
+CONF_LAST_DIR			= 'last dir'
+CONF_NEW_LINES			= 'new lines'
+CONF_LINE_NUMBERS		= 'line numbers'
+
+# search settings keys
+CONF_FIND_CASE_SENSITIVE	= 'case-sensitive search'
+CONF_FIND_TEXT			= 'search text'
+CONF_FIND_DIRECTION		= 'search direction'
+CONF_FIND_REGEXP		= 'regular expression'
+CONF_REPLACE_TEXT		= 'replace text'
+
+# config groups keys
+CONF_GROUP_MAIN			= 'main'
+CONF_GROUP_FIND			= 'find'
+CONF_GROUP_FIND_DIRECTION	= 'find direction'
+CONF_GROUP_REPLACE		= 'replace'
+
+CONF_DB = [
+	# id				group				description		default			min. s60_version	options (None => no dialog)			(a,'b') => a.b = option
+	(CONF_VERSION,			CONF_GROUP_MAIN,		'Version',		VERSION,		1,			None,						None				),
+	(CONF_ENCODING,			CONF_GROUP_MAIN,		'File encoding',	getdefaultencoding(),	1,			[unicode(enc) for enc in aliases.aliases],	None				),
+	(CONF_NEW_LINES,		CONF_GROUP_MAIN,		'New lines',		'unix',			1,			['unix', 'windows'],				None				),
+	(CONF_FONT,			CONF_GROUP_MAIN,		'Font',			Text().font[0],		1,			available_fonts(),				None				),
+	(CONF_FONT_SIZE,		CONF_GROUP_MAIN,		'Font size',		15,			2,			int,						None				),
+	(CONF_FONT_COLOUR,		CONF_GROUP_MAIN,		'Font colour',		(0,0,0),		1,			None,						None				),
+	(CONF_FONT_ANTIALIAS,		CONF_GROUP_MAIN,		'Font anti-aliasing',	'no',			2,			['yes', 'no'],					None				),
+	(CONF_LINE_NUMBERS,		CONF_GROUP_MAIN,		'Display line number',	'yes',			1,			['yes', 'no'],					None				),
+	(CONF_LAST_DIR,			CONF_GROUP_MAIN,		'Last used directory',	'\\',			1,			None,						None				),
+	(CONF_HISTORY,			CONF_GROUP_MAIN,		'History',		[],			1,			None,						None				),
+	(CONF_HISTORY_SIZE,		CONF_GROUP_MAIN,		'Max history size',	8,			1,			int,						None				),
+	(CONF_SCREEN,			CONF_GROUP_MAIN,		'Screen Size',		'normal',		1,			['large', 'normal', 'full'],			(app, 'screen')			),
+	(CONF_ORIENTATION,		CONF_GROUP_MAIN,		'Screen orientation',	'automatic',		3,			['automatic', 'portrait', 'landscape'],		(app, 'orientation')		),
+	(CONF_FIND_TEXT,		CONF_GROUP_FIND,		'Search text',		'',			1,			unicode,					None				),
+	(CONF_REPLACE_TEXT,		CONF_GROUP_REPLACE,		'Replace text',		'',			1,			unicode,					None				),
+	(CONF_FIND_DIRECTION,		CONF_GROUP_FIND_DIRECTION,	'Search direction',	'all',			1,			['all', 'next', 'previous'],			None				),
+	(CONF_FIND_CASE_SENSITIVE,	CONF_GROUP_FIND,		'Case sensitive find',	'no',			1,			['yes', 'no'],					None				),
+	(CONF_FIND_REGEXP,		CONF_GROUP_FIND,		'Regular expression',	'no',			1,			['yes', 'no'],					None				),
+]
+
+class Titlebar (object):
+	"""A class to manage the S60 Titlebar"""		
+	
+	# create a wrapper around the titlebar text which ignores prepended text
+	def __setTitle(self, value):
+		self.__title = app.title = value
+		ao_yield()
+	
+	def __getTitle(self):
+		return self.__title
+	
+	title = property(fget = __getTitle, fset = __setTitle)
+	
+	def __init__(self, id='default', default=app.title):
+		self.__title = unicode(default)
+		self.running = 0
+		self.current_id = id
+	
+	def temporary(self, message):
+		"""set title but do not remember it when changed"""
+		app.title = unicode(message)
+		ao_yield()
+	
+	def refresh(self):
+		"""set the titlebar to the current stored value"""
+		app.title = self.title
+		ao_yield()
+	
+	def __run(self, override, id, message, function, separator=u' > '):
+		"""Execute a function while displaying/appending a message on the Titlebar"""
+		oldtitle = self.title
+		oldid = self.current_id
+		self.currentid = id
+		if override:
+			self.title = unicode(message)
+		else:
+			self.title = oldtitle + separator + unicode(message)
+		retval = function()
+		self.title = oldtitle
+		self.currentid = oldid
+		ao_yield()
+		return retval
+	
+	def run(self, id, message, function, separator=u' > '):
+		"""Execute a function while appending a message to the Titlebar"""
+		return self.__run(0, id, message, function)
+	
+	def run_no_path(self, id, message, function, separator=u' > '):
+		"""Execute a function while displaying a message on the Titlebar"""
+		return self.__run(1, id, message, function)
+	
+	def prepend(self, id, message):
+		"""temporarily prepends a string to the current titlebat text"""
+		if self.current_id == id:
+			app.title = unicode(message) + self.title
+			ao_yield()
+
+
+class Settings (dict):
+	"""Settings manager"""
+	
+	saveRequired = 0
+	keep_config = 0
+	db = None
+	path = None
+	exit = Ao_lock()
+	
+	def __setitem__(self, key, value):
+		"""equivalent to dict.__setitem__ but flags saveRequired"""
+		self.saveRequired = 1
+		dict.__setitem__(self, key, value)
+	
+	def __init__(self, db, path, titlebar=Titlebar('settings')):
+		dict.__init__(self)
+		self.titlebar = titlebar
+		self.path = path
+		self.db = db
+		# create a new configuration in memory if one does not exist
+		existing_conf = isfile(self.path)
+		if existing_conf:
+			try:
+				# read the config file from disk
+				f = open(self.path, 'r')
+				conf_string = f.read()
+				f.close()
+				self.update(eval(conf_string))
+				# check if a new version has been installed
+				existing_conf = (self[CONF_VERSION] == VERSION)
+			except:
+				if DEBUG:
+					print("Cannot read config file " + self.path)
+				note(u'Error reading settings', 'error')
+				self.keep_config = not(query(u'Reset settings?', 'query'))
+				existing_conf = 0
+		if not(existing_conf):
+			note(u"Creating new configuration", 'info')
+			# set current settings to these defaults
+			self.update(dict([(id, default) for (id,group,description,default,s60,options,action) in self.db]))
+			# create the folder containing config if it does not exist
+			conf_folder = dirname(self.path)
+			if not(exists(conf_folder)):
+				makedirs(conf_folder)
+			self.saveRequired = 1
+			self.save()
+
+	def save(self):
+		"""Save current config to disk"""
+		if DEBUG:
+			print("Saving settings to " + self.path)
+		if self.saveRequired and not(self.keep_config):
+			try:
+				f = open(self.path, 'w')
+				f.write(repr(self))
+				f.close()
+				self.saveRequired = 0
+				self.keep_config = 0
+			except:
+				note(u'Error saving config', 'error')
+		elif DEBUG:
+			print("Config not saved")
+	
+	def __currentSettingsList(self, groups_requested=[]):
+		return [(id,group,description,default,s60,options,action)
+			for (id,group,description,default,s60,options,action) in self.db
+				if s60_version_info[0] >= s60
+				and options != None		# filter out items with no user options
+				and group in groups_requested	# filter by groups_requested list
+		]
+
+	def refresh_ui(self, settingsList=None):
+		"""Update the Settings panel with the settings passed into settingsList"""
+		if self.settings_list:	# make sure the UI control exists
+			# get a list of all settings if one has not been provided
+			if settingsList == None:
+				settingsList = self.__currentSettingsList()
+			slist = [(unicode(description), unicode(self[id]))
+				for (id,group,description,default,s60,options,action) 
+				in settingsList
+			]
+			self.settings_list.set_list(slist, self.settings_list.current())
+			ao_yield()
+		elif DEBUG:
+			print("Settings: update: No list to update!")
+
+	def show_ui(self, groups_requested=[], callback=None, titlebar=u'Edit', menu_items=[]):
+		"""Create and show a settings editor"""
+		def show():
+			def modify(selected):
+				"""edit a setting"""
+				(id, description, options, action, supported_s60_version) = [(id, description, options, action, s60)
+					for (id,group,description,default,s60,options,action) 
+					in self.__currentSettingsList(groups_requested)
+					][selected]
+				# display options
+				selection = None
+				if options.__class__ == type:
+					if options == int:
+						selection = query(unicode(description), 'number', self[id])
+					elif options == str or options == unicode:
+						selection = query(unicode(description), 'text', unicode(self[id]))
+					if selection != None:
+						self[id] = selection
+				elif options.__class__ == list:
+					n_options = len(options)
+					if n_options == 1:
+						selection == 0
+					elif n_options == 2:	# if there are only 2 options
+						selection = (options.index(self[id]) + 1) % 2	# select the other option
+					elif n_options > 2 and n_options <= 4:
+						selection = popup_menu([unicode(option).capitalize() for option in options], unicode(description))
+					else:
+						options = [unicode(option) for option in options]
+						options.sort()
+						selection = selection_list(choices=options, search_field=1)
+					if selection != None:
+						self[id] = options[selection]
+				elif DEBUG:
+					print("Settings : Unsupported type " + str(options.__class__))
+				self.refresh_ui(self.__currentSettingsList(groups_requested))
+				self.saveRequired = 1
+				# run any immediate action if one has been defined
+				if action != None and s60_version_info[0] >= supported_s60_version:
+					try:
+						setattr(action[0], action[1], self[id])
+					except:
+						note(u'Error setting ' + unicode(description), 'error')
+			self.settings_list = Listbox([(u'dummy',u'item')], lambda: modify(self.settings_list.current()))
+			self.refresh_ui(self.__currentSettingsList(groups_requested))
+			# save previous application state
+			previous_body = app.body
+			previous_menu = app.menu
+			previous_exit_key_handler = app.exit_key_handler
+			# show the settings editor
+			app.body = self.settings_list
+			app.menu = menu_items + [
+				(u'Modify', lambda: modify(self.settings_list.current())),
+				(u'Close', self.exit.signal),
+			]
+			self.settings_list.bind(EKeyEdit, lambda: modify(self.settings_list.current()))
+			self.settings_list.bind(EKeyYes, app.menu[0][1])	# set call key to do first action in menu
+			app.exit_key_handler = self.exit.signal
+			# wait for a signal to exit the settings editor
+			self.exit.wait()
+			# sve any changes
+			self.save()
+			# exit the editor
+			app.body = previous_body
+			app.menu = previous_menu
+			app.exit_key_handler = previous_exit_key_handler
+			del(self.settings_list)	# destroy list UI to save memory
+		retval = None
+		if self.titlebar != None:
+			retval = self.titlebar.run('settings', titlebar, show)
+		else:
+			retval = show()
+		if callback != None:
+			callback()
+		return retval
+
+
+from dir_iter import Directory_iter
+
+class Filebrowser (Directory_iter):
+	def __init__(self, initial_dir='\\', titlebar=Titlebar('filebrowser')):
+		self.drive_list = drive_list()
+		Directory_iter.__init__(self, self.drive_list)
+		# set initial directory if one has been specified
+		if initial_dir != '\\':
+			if isdir(initial_dir):
+				self.path = initial_dir
+				self.at_root = 0
+				# go up a directory if directory current is empty - listbox cannot display empty lists!
+				if len(self.list_repr()) == 0:
+					self.pop()
+			elif DEBUG:
+				print("Filebrowser : Directory does not exist " + str(initial_dir))
+		self.lock = Ao_lock()
+		self.titlebar = titlebar
+		self.listbox = None
+		
+	def __getSelection(self):
+		if self.at_root:
+			return str(self.drive_list[self.listbox.current()])
+		else:
+			return join(self.path, str(self.entry(self.listbox.current())))
+			
+	abs_path = property(fget=__getSelection)
+		
+	def refresh_ui(self, current=None):
+		"""refresh the current file list
+		current sets the current selection"""
+		dir_listing = self.list_repr()
+		if current == None:
+			current = self.listbox.current()
+		if len(dir_listing) > 0:
+			self.titlebar.temporary(self.path)
+			self.listbox.set_list(dir_listing, current)
+			ao_yield()
+		else:
+			note(u'Empty directory', 'info')
+			self.pop()
+			self.refresh_ui(current=0)
+	
+	def show_ui(self, allow_directory=0):
+		"""show the file browser - returns the path selected
+		allow_directory = 1 allows a directory to be selected"""
+		def show_ui():
+			self.return_path = None
+			def descend():
+				"""open the currently selected directory"""
+				selection = self.listbox.current()
+				path = self.entry(selection)
+				if self.at_root or isdir(path):
+					self.add(selection)
+					self.refresh_ui()
+			def ascend():
+				"""go up the directory hierarchy"""
+				if self.path != '\\':
+					self.pop()
+					self.refresh_ui()
+			def select():
+				"""select the current file or open the directory"""
+				if allow_directory or isfile(self.abs_path):
+					self.return_path = self.abs_path
+					self.lock.signal()
+				else:
+					descend()
+			def rename_file():
+				"""Rename the currently selected file"""
+				path = self.entry(self.listbox.current())
+				filename = basename(path)
+				new_name = query(u'Rename ' + filename, 'text', unicode(filename))
+				if new_name != None:
+					try:
+						new_path = dirname(path) + str(new_name)
+						rename(path, new_path)
+						note(u'File renamed', 'info')
+					except:
+						note(u'Error renaming file', 'error')
+					self.refresh_ui()
+			def create_directory():
+				"""create a new directory at the current location"""
+				if self.at_root:
+					note(u'Cannot create directory here', 'info')
+				else:
+					dir_name = query(u'Directory name', 'text', u'New directory')
+					if dir_name != None:
+						try:
+							mkdir(join(self.path, str(dir_name)))
+						except:
+							note(u'Error creating directory', 'error')
+						self.refresh_ui()
+			def delete_file():
+				path = self.entry(self.listbox.current())
+				if query(u'Delete ' + unicode(basename(path)) + u'?', 'query'):
+					change_made = 0
+					if isfile(path):
+						try:
+							remove(path)
+							change_made = 1
+						except:
+							note(u'Error delecting file', 'error')
+					elif isdir(path):
+						if len(listdir(path)) == 0:
+							try:
+								rmdir(normpath(path))
+								change_made = 1
+							except:
+								note(u'Error deleting directory', 'error')
+						else:
+							note(u'Not deleted: Directory is not empty', 'info')
+					if change_made:
+						self.refresh_ui()
+			def os_open():
+				"""open the currently selected file with the default application specified by the OS"""
+				if isfile(self.entry(self.listbox.current())):
+					try:
+						Content_handler().open_standalone(self.entry(self.listbox.current()))
+					except:
+						note(u'Error opening file', 'error')
+			# save ui state
+			body_previous = app.body
+			menu_previous = app.menu
+			exit_previous = app.exit_key_handler
+			# show file browser
+			app.menu = [
+				(u' []   Select', select),
+				(u' <-   Parent directory', ascend),
+				(u' ->   Enter directory', descend),
+				(u' 1    New directory', create_directory),
+				(u' 2    Open with OS', os_open),
+				(u'ABC  Rename', rename_file),
+				(u' C    Delete', delete_file),
+			]
+			self.listbox = Listbox([(u'dummy', u'item')], select)
+			self.listbox.bind(EKeyLeftArrow, ascend)
+			self.listbox.bind(EKeyRightArrow, descend)
+			self.listbox.bind(EKey1, create_directory)
+			self.listbox.bind(EKey2, os_open)
+			self.listbox.bind(EKeyEdit, rename_file)
+			self.listbox.bind(EKeyBackspace, delete_file)
+			self.refresh_ui()
+			app.body = self.listbox
+			app.exit_key_handler = self.lock.signal
+			ao_yield()
+			self.lock.wait()
+			self.listbox = None	# let the listbox be garbage collected
+			# restore ui state
+			app.body = body_previous
+			app.menu = menu_previous
+			app.exit_key_handler = exit_previous
+			return self.return_path
+		return self.titlebar.run_no_path('filebrowser', unicode(self.path), show_ui)
+
+
+class Editor:
+	"""chetbox[at]gmail[dot]com - EasyEdit is Released under GPLv2 (See bundled COPYING.txt)"""
+	
+	titlebar = None
+	config = None
+	hasFocus = 0
+	filebrowser = None
+	__document_lock = None
+	text = None
+	
+	def __newline_fix(self, text):
+		"""Used to replace S60 UI newline characters with normal \n"""
+		return text.replace(u'\u2029',u'\n')
+
+	def __open_document(self, path, read_from_disk=1):
+		"""Open a document by reading from disk, and showing "busy" status.
+		Locks until called again"""
+		oldpath = self.path
+		self.path = path
+		if self.__document_lock != None:
+			self.__document_lock.signal()
+		def open_document():
+			error = 0
+			if read_from_disk:
+				# show "busy" message
+				self.titlebar.prepend('document', BUSY_MESSAGE + u' ')
+				try:
+					# read file from disk
+					f = open(path)
+					text = f.read()
+					f.close()
+					text = self.decode(text)
+					# show file in editor
+					self.text.clear()
+					self.refresh()
+					self.text.set(text)
+					self.text.set_pos(0)
+				except:
+					note(u'Error opening file', 'error')
+					# ask user if they wish to remove it from the recent document list
+					if query(u'Remove from Recent Documents?', 'query'):
+						self.config[CONF_HISTORY].remove(path)
+						self.config.save()
+					# fallback to the previous document if there was an error
+					self.__open_document(oldpath, read_from_disk=0)
+					error = 1
+			if not(error):
+				self.__document_lock = Ao_lock()
+				#self.__document_lock.wait()	# seems to block UI! =(
+				self.__document_lock = None
+		if path != None:
+			# add to recent list
+			if normpath(path) in self.config[CONF_HISTORY]:
+				self.config[CONF_HISTORY].remove(path)
+			self.config[CONF_HISTORY] = ([normpath(path)] + self.config[CONF_HISTORY])[:self.config[CONF_HISTORY_SIZE]]
+			self.config.save()
+			# show filename in titlebar until a different file is opened
+			self.titlebar.run('document', unicode(basename(normpath(path))), open_document)
+
+	def run(self):
+		"""Start EasyEdit"""
+		def exitHandler():
+			"""Stop EasyEdit"""
+			self.running = 0
+		focusLock = Ao_lock()
+		externalFocusHandler = app.focus
+		def focusHandler(f):
+			if f and not(self.hasFocus):	# if we have just got focus
+				self.hasFocus = 1
+				focusLock.signal()
+			if not(f) and self.hasFocus:	# if we just lost focus
+				self.hasFocus = 0
+			if externalFocusHandler:
+				externalFocusHandler(f)
+		app.focus = focusHandler
+		def save_query():
+			"""check if file needs saving and prompt user if necessary - returns user reponse"""
+			save = 0
+			save_required = 1
+			current_text = self.text.get()
+			if self.exists():
+				# read file and compare to current
+				f = open(self.path, 'r')
+				saved_text = f.read()
+				f.close()
+				if saved_text == self.encode(current_text):
+					save_required = 0
+			elif len(current_text) == 0:
+				save_required = 0
+			if save_required:
+				if DEBUG:
+					print("Save required")
+				save = popup_menu([u'Yes', u'No'], u'Save file?')
+				if save != None:
+					save = not(save)	# because 0 => 'yes' option, 1 => 'no' option
+					if save == 1:
+						f_save()
+			return save
+		def f_new(force=0):
+			"""start a new, blank document"""
+			if force or save_query() != None:
+				self.text.clear()
+				self.refresh()
+				self.__open_document(None)
+		def f_open():
+			"""open an existing document"""
+			# show file selector
+			path = None
+			if self.filebrowser == None:
+				self.filebrowser = Filebrowser(self.config[CONF_LAST_DIR], self.titlebar)
+			path = self.filebrowser.show_ui()
+			# show "save?" dialog if necesary and open document
+			if path != None:
+				self.__save_last_dir(path)
+				if save_query() != None:
+					# open the document
+					self.__open_document(path)
+		def f_open_recent():
+			"""select a file to open from the recent document list"""
+			lock = Ao_lock()
+			listbox = None
+			def select():
+				lock.signal()
+				self.__open_document(self.config[CONF_HISTORY][listbox.current()])
+			def current_list():
+				return [(basename((unicode(file))), dirname(unicode(file))) for file in self.config[CONF_HISTORY]]
+			def remove_recent():
+				if query(u'Remove from recent documents?', 'query'):
+					self.config[CONF_HISTORY].remove(self.config[CONF_HISTORY][listbox.current()])
+					self.config.save()
+					new_list = current_list()
+					if len(new_list) > 0:
+						listbox.set_list(current_list())
+					else:
+						note(u'No more recent documents', 'info')
+						lock.signal()
+			list = current_list()
+			if len(list) > 0:
+				# save previous application state
+				previous_body = app.body
+				previous_menu = app.menu
+				previous_exit_key_handler = app.exit_key_handler
+				listbox = Listbox(list, select)
+				app.body = listbox
+				app.menu = [
+					(u'Open', select),
+					(u'Remove from list', remove_recent),
+				]
+				app.exit_key_handler = lock.signal
+				listbox.bind(EKeyBackspace, remove_recent)
+				lock.wait()
+				# exit the editor
+				app.body = previous_body
+				app.menu = previous_menu
+				app.exit_key_handler = previous_exit_key_handler
+			else:
+				note(u'No recent documents', 'info')
+		def f_save(force=0):
+			"""save the current file - force skips exist check"""
+			if force or self.exists():
+				# show "busy" message
+				self.titlebar.prepend('document', BUSY_MESSAGE + u' ')
+				try:
+					text = self.encode(self.text.get())
+					f=open(self.path, 'w')
+					f.write(text)
+					f.close()
+					note(u'File saved','conf')
+				except:
+				    note(u'Error saving file.','error')
+				# clear "busy" message
+				self.titlebar.refresh()
+			else:
+				f_save_as()
+		def f_save_as():
+			"""save current file at a new location"""
+			# show file selector
+			path = None
+			if self.filebrowser == None:
+				self.filebrowser = Filebrowser(self.config[CONF_LAST_DIR], self.titlebar)
+			path = self.filebrowser.show_ui(allow_directory=1)
+			if path != None:
+				# assume a directory has been selected -  suggest a filename in the current directory
+				new_file_location = dirname(path)
+				containing_dir = basename(path)
+				# <hack reason="top-level paths (drives) need to have a \ appended because join will not add it">
+				if len(new_file_location) == 2:	# if new_file_location is just a drive letter (top-level)
+					new_file_location += '\\' # append a \ 
+				# </hack>
+				suggested_filename = join(containing_dir, 'untitled.txt')
+				# if a file is selected update the suggested name with its name
+				if isfile(path):
+					current_filename = containing_dir	# if a dir was not selected containing_dir is the filename
+					containing_dir = basename(new_file_location)
+					new_file_location = dirname(new_file_location)
+					suggested_filename = join(containing_dir, current_filename)
+				new_filename = query(unicode(new_file_location), 'text', unicode(suggested_filename))
+				if new_filename != None:
+					self.path = join(new_file_location, new_filename)
+					self.__save_last_dir(self.path)
+					# check if file already exists and ask if it should be replaced
+					save_possible = 0
+					if isfile(self.path):
+						save_possible = query(u'Overwite file?', 'query')
+					elif isdir(self.path):
+						note(u'Not saved: A directory exists with that name', 'info')
+					else:
+						save_possible = 1
+					if save_possible:
+						f_save(force=1)	# force prevents another call to f_save_as
+		def s_go_to_line():
+			"""move cursor to beginning of specified line number"""
+			text = self.__newline_fix(self.text.get())
+			total_lines = text.count(u'\n') + 1
+			line_no = query(u'Line number (1 - ' + unicode(total_lines) + ')', 'number', 1)
+			if line_no != None:
+				if line_no > 0 and line_no <= total_lines:
+					# find the position in the text of the beginning of the line required
+					last_newline = -1
+					for line in range(line_no - 1):
+						last_newline = text.index('\n', (last_newline + 1))
+					self.text.set_pos(last_newline + 1)
+				else:
+					note(u'Invalid line number', 'error')
+		def s_find():
+			"""find a string in the document"""
+			def find():
+				self.config.save()
+				cursor_position = self.text.get_pos()
+				text = self.__newline_fix(self.text.get())
+				search_text = self.config[CONF_FIND_TEXT]
+				if self.config[CONF_FIND_CASE_SENSITIVE] == 'no':
+					text = text.lower()
+					search_text = search_text.lower()
+				if self.config[CONF_FIND_DIRECTION] == 'next':
+					cursor_position = text.find(search_text, cursor_position + 1)
+				elif self.config[CONF_FIND_DIRECTION] == 'previous':
+					cursor_position = text.rfind(search_text, 0, cursor_position - 1)
+				else:	# search all
+					cursor_position = text.find(search_text)
+				if cursor_position != -1:
+					self.text.set_pos(cursor_position)
+					self.config.exit.signal()
+				else:
+					note(u'Search text not found', 'info')
+			self.config.show_ui(groups_requested=[CONF_GROUP_FIND, CONF_GROUP_FIND_DIRECTION], titlebar=u'Find', menu_items=[(u'Search',find)])
+		def s_replace():
+			"""replace all matching strings in the document"""
+			def replace():
+				self.config.save()
+				cursor_position = self.text.get_pos()
+				current_text = self.text.get()
+				find_text = self.config[CONF_FIND_TEXT]
+				if self.config[CONF_FIND_CASE_SENSITIVE] == 'no':
+					current_text = current_text.lower()
+					find_text = find_text.lower()
+				self.titlebar.prepend('settings', BUSY_MESSAGE)
+				new_text = current_text.replace(find_text, self.config[CONF_REPLACE_TEXT])
+				self.text.set(new_text)
+				note(unicode(current_text.count(find_text)) + " matches replaces", 'info')
+				if cursor_position > len(new_text):
+					cursor_position = len(new_text)
+				self.text.set_pos(cursor_position)
+				self.config.exit.signal()
+				self.titlebar.refresh()
+			self.config.show_ui(groups_requested=[CONF_GROUP_FIND, CONF_GROUP_REPLACE], titlebar=u'Replace', menu_items=[(u'Replace all', replace)])
+		# read settings
+		self.titlebar = Titlebar('document', u'EasyEdit')
+		self.config = Settings(CONF_DB, CONFFILE, self.titlebar)
+		self.hasFocus = 1
+		# save current state
+		old_title = app.title
+		old_screen = app.screen
+		old_orientation = app.orientation
+		old_exit_key_handler = app.exit_key_handler
+		old_body = app.body
+		old_menu = app.menu
+		old_focus_handler = app.focus
+		# set up environment from settings
+		app.screen = self.config[CONF_SCREEN]
+		app.orientation = self.config[CONF_ORIENTATION]
+		# create editor environment
+		self.text = Text()
+		self.path = None
+		# set up menu
+		app.menu=[
+			(u'File', (
+				(u'New', f_new),
+				(u'Open', f_open),
+				(u'Open recent', f_open_recent),
+				(u'Save', f_save),
+				(u'Save As', f_save_as),
+			)),
+			(u'Search', (
+				(u'Find', s_find),
+		#		(u'Find next', s_find_next),
+		#		(u'Find previous', s_find_prev),
+				(u'Replace', s_replace),
+				(u'Go to line', s_go_to_line),
+			)),
+			(u'Settings', lambda : self.config.show_ui(groups_requested=[CONF_GROUP_MAIN], callback=self.refresh, menu_items=[(u'Return to editor', self.config.exit.signal)])),	# show all CONF_GROUP_MAIN settings
+			(u'Help', (
+		#		(u'Open README', self.h_readme),
+				(u'About EasyEdit', lambda : query(unicode(self.__doc__), 'query')),
+			)),
+			(u'Exit', exitHandler),
+			]
+		# start editing a new document
+		f_new()
+		# display editor
+		app.body = self.text
+		ao_yield()
+		app.exit_key_handler = exitHandler
+		# set the 'dial' key to save document
+		self.text.bind(EKeyYes, f_save)
+		quit_app = None
+		while quit_app == None:
+			self.running = 1
+			while self.running:
+				# display line numbers if enabled
+				if self.hasFocus:
+					if self.config[CONF_LINE_NUMBERS] == 'yes':
+						n = self.__newline_fix(self.text.get()[:self.text.get_pos()]).count(u'\n')
+						self.titlebar.prepend('document', u'[' + unicode(n + 1) + '] ')
+						ao_yield()
+					ao_sleep(0.2)	# refresh rate of line numbers (seconds)
+				else:
+					# lock to stop busy waiting when app is not in focus
+					focusLock.wait()
+			# intent to close application has now been expressed
+			quit_app = save_query()
+		# application should now be closing
+		# unlock any pending locks
+		if self.__document_lock != None:
+			self.__document_lock.signal()
+		# restore original state
+		app.title = old_title
+		app.screen = old_screen
+		app.orientation = old_orientation
+		app.exit_key_handler = old_exit_key_handler
+		app.body = old_body
+		app.menu = old_menu
+		app.focus = old_focus_handler
+		
+	def encode(self, text):
+		"""encode text accoridng to settings"""
+		# ensure all new-lines are represented as '\n'
+		encoded_text = self.__newline_fix(text)
+		# convert to windows format if required
+		if self.config[CONF_NEW_LINES] == 'windows':
+			encoded_text = encoded_text.replace(u'\n', u'\r\n')
+		# convert text
+		encoded_text = encoded_text.encode(self.config[CONF_ENCODING])
+		return encoded_text
+	
+	def decode(self, text):
+		"""decode text according to settings"""
+		# decode text
+		decoded_text = unicode(text.decode(self.config[CONF_ENCODING]))
+		# replace windows new lines if necessary
+		if self.config[CONF_NEW_LINES] == 'windows':
+			decoded_text = decoded_text.replace(u'\r\n', u'\n')
+		return decoded_text
+	
+	def exists(self):
+		"""handy function that checks if the open document exists on disk (may have different contents)"""
+		return (self.path != None) and (len(self.path) > 0) and isfile(self.path)
+		
+	def refresh(self):
+		"""refresh the editor view"""
+		def refresh():
+			cursor_position = self.text.get_pos()
+			text = self.text.get()
+			self.text.font = (
+				unicode(self.config[CONF_FONT]),
+				self.config[CONF_FONT_SIZE],
+				(self.config[CONF_FONT_ANTIALIAS] == 'yes') and FONT_ANTIALIAS
+			)
+			self.text.color = self.config[CONF_FONT_COLOUR]
+			self.text.set(text)
+			self.text.set_pos(cursor_position)
+		self.titlebar.run_no_path('refresh', BUSY_MESSAGE, refresh)
+	
+	def __save_last_dir(self, path):
+		"""save the location of the last viewed directory in self.config"""
+		if isdir(path):
+			self.config[CONF_LAST_DIR] = normpath(path)
+		else:
+			self.config[CONF_LAST_DIR] = dirname(normpath(path))
+		self.config.save()
 
-VERSION=(1, 45, 0)
-CONFFILE='C:\\SYSTEM\\Data\\EasyEdit.conf'
-DEFAULTENCODING=getdefaultencoding()
 
-
-class editor:
-
- """EasyEdit : A Text Editor for s60
-(chetbox[at]gmail[dot]com)"""
-
- def __init__(self):
-  self.last_find=u''
-  self.settings=Settings()
-  self.settings.load(CONFFILE)
-  self.file_ops=File_ops(self.settings.config['last_dir'][0])
-
- def run(self):
-  """start application"""
-  appuifw.app.title=u'EasyEdit'
-  appuifw.app.screen=self.settings.config['screen']
-
-  # create blank page
-  self.text=appuifw.Text()
-  self.path=''
-  self.f_new()
-
-  # set up menu
-  appuifw.app.menu=[\
-   (u'File', (\
-    (u'New', self.f_new),\
-    (u'Open', self.f_open),\
-    (u'Open recent', self.f_recent),\
-    (u'Save', self.f_save),\
-    (u'Save As', self.f_save_as),\
-   )),\
-   (u'Search', (\
-    (u'Find', self.s_ffind),\
-    (u'Find next', self.s_find),\
-    (u'Find previous', self.s_rfind),\
-    (u'Replace', self.s_replace),\
-    (u'Go to line', self.s_line),\
-   )),\
-   (u'Settings', self._editsettings),\
-   (u'Help', (\
-    (u'Open README', self.h_readme),\
-    (u'About EasyEdit', self.h_about),\
-   )),\
-   (u'Exit', self.exit),\
-  ]
-
-  # display editor
-  self.lock = False
-  self._focus = True
-  appuifw.app.body=self.text
-  appuifw.app.focus = self._changefocus
-  self.text.bind(EKeyYes, self.f_save)
-  appuifw.app.exit_key_handler=self.exit
-  self.lock = True
-  #Ao_lock().wait()
-  self._count()
-
- def _changefocus(self, focus):
-   self._focus = focus
-
- def _count(self):
-  while self.lock:
-   if self._focus and self.settings.config['linenos'][0] == 'yes':
-    n = self.text.get()[0:self.text.get_pos()].replace(u'\u2029',u'\n').count(u'\n')
-    statusbar.refresh(prefix='[' + str(n+1) + ']')
-   ao_sleep(0.1)
-
- def _refresh(self):
-  "update the screen font"
-  statusbar.busy()
-  cur_pos=self.text.get_pos()
-  self.text.font=unicode(self.settings.config['font'][0])
-  self.text.color=\
-   (\
-    self.settings.config['font_colour'][0],\
-    self.settings.config['font_colour'][1],\
-    self.settings.config['font_colour'][2]\
-   )
-  self.text.set(self.text.get())
-  self.text.set_pos(cur_pos)
-  statusbar.signal()
-
- def _editsettings(self):
-  "show the settings editor"
-  self.settings.edit(callback=self._refresh)
-
- def f_new(self):
-  """create a blank document"""
-  selection=2
-  if (self.text.len() > 0) or os.path.isfile(self.path):
-   selection=appuifw.popup_menu([\
-     u'Yes',\
-     u'No',\
-    ],\
-     u'Save document?'\
-   )
-  if (selection == 0):
-   self.f_save()
-  if (selection != None):
-   self.text.style=False
-   self.text.set(u'')
-   self._refresh()
-   self.path=''
-   statusbar.remove()
-
- def f_open(self, path=None, save_path=True):
-  """open an existing document"""
-  if path == None:
-   self.file_ops.open(self.f_open)
-  else:
-   selection=2
-   if os.path.isfile(self.path) or (self.text.len() > 0):
-    selection=appuifw.popup_menu\
-     ([\
-       u'Yes',\
-       u'No',\
-      ],\
-      u'Save document?'\
-     )
-   if (selection == 0):
-    self.f_save()
-   if (selection != None):
-    statusbar.busy()
-    try:
-     f=open(path,'r')
-     self.text.style=False
-     self.text.set(unicode(f.read().decode(self.settings.config['encoding'][0])))
-     self.text.set_pos(0)
-     f.close()
-     self.path=path
-     statusbar.remove()
-     statusbar.add(os.path.basename(self.path))
-     if save_path:
-      self.settings.config['last_dir'][0]=os.path.dirname(self.path)
-     self._addrecent(self.path)
-    except:
-     appuifw.note(u'Error opening file', 'error')
-    statusbar.signal()
-
- def f_recent(self):
-  """open a recently opeened document"""
-  recent=[]
-  for path in self.settings.config['history']:
-   recent.append((unicode(os.path.basename(path)),unicode(os.path.dirname(path))))
-  try:
-   self.recent_list=appuifw.Listbox(recent, self._f_recent_select)
-   body_previous=appuifw.app.body
-   menu_previous=appuifw.app.menu
-   exit_previous=appuifw.app.exit_key_handler
-   appuifw.app.body=self.recent_list
-   appuifw.app.menu=\
-    [\
-     (u'Select', self._f_recent_select),\
-     (u'Cancel', self._f_recent_exit)\
-    ]
-   statusbar.add('Select document...')
-   appuifw.app.exit_key_handler=self._f_recent_exit
-   self.recent_lock=Ao_lock()
-   self.recent_lock.wait()
-   appuifw.app.exit_key_handler=exit_previous
-   appuifw.app.body=body_previous
-   appuifw.app.menu=menu_previous
-  except:
-   appuifw.note(u'No recent documents', 'info')
-
- def _addrecent(self, path):
-  """add a document to the list of recent documents"""
-  if path in self.settings.config['history']:
-   self.settings.config['history'].remove(path)
-  self.settings.config['history'].insert(0, path)
-  if len(self.settings.config['history']) > self.settings.config['history_max']:
-   temp=self.settings.config['history'].pop()
-  self.settings._saveconfig()
-
- def _f_recent_select(self, path=None):
-  """select a document from the recent documents"""
-  statusbar.busy()
-  self._f_recent_exit()
-  self.f_open(self.settings.config['history'][self.recent_list.current()], False)
-  statusbar.signal()
-
- def _f_recent_exit(self):
-  """close the recent documents dialog"""
-  statusbar.remove()
-  self.recent_lock.signal()
-
- def f_save(self):
-  """save the current file"""
-  if not(os.path.isfile(self.path)):
-   self.f_save_as()
-  else:
-   statusbar.busy()
-   try:
-    text = self.text.get().replace(u'\u2029', u'\n').replace(u'\r\n', u'\n')
-    if self.settings.config['newline'][0] == 'windows':
-     text = text.replace(u'\n', u'\r\n').encode(self.settings.config['encoding'][0])
-    else:
-     text = text.encode(self.settings.config['encoding'][0])
-    f=open(str(self.path),'w')
-    f.write(text)
-    f.close()
-    self._addrecent(self.path)
-    appuifw.note(u'File saved.','conf')
-   except:
-    appuifw.note(u'Error saving file.','error')
-   statusbar.update(os.path.basename(self.path))
-   statusbar.signal()
-
- def f_save_as(self, path=None):
-  """save the current file with a new path"""
-  if path == None:
-   self.file_ops.open(self.f_save_as, True)
-  else:
-   temp=self.path[:]
-   self.path=path
-   if (path == None):
-    self.path=temp
-   elif os.path.isfile(self.path):
-    if appuifw.query(u'Overwrite '+unicode(self.path)+' ?','query'):
-     self.f_save()
-   else:
-    statusbar.busy()
-    try:
-     f=open(str(self.path), 'w')
-     f.close()
-     self.f_save()
-     self.settings.config['last_dir'][0]=os.path.dirname(self.path)
-     self.settings._saveconfig()
-     statusbar.remove()
-     statusbar.add(os.path.basename(path))
-    except:
-     appuifw.note(u'Invalid path: '+unicode(self.path),'error')
-     self.path=temp
-    statusbar.signal()
-
- def s_find(self, reverse=False, beginning=False):
-  """find text within a document"""
-  statusbar.add('Find text...')
-  string = appuifw.query(u'Find text:', 'text', unicode(self.last_find))
-  statusbar.remove()
-  saved_string = string[:]
-  if (string != None):
-   statusbar.busy()
-   try:
-    text = self.text.get()
-    if self.settings.config['casesensitive'][0] == 'no':
-     text = text.lower()
-     string = string.lower()
-    if beginning:
-     if reverse:
-      cur_pos=text.rindex(string)
-     else:
-      cur_pos=text.index(string)
-    else:
-     if reverse:
-      cur_pos=text.rindex(string, 0, (self.text.get_pos() -1))
-     else:
-      cur_pos=text.index(string, (self.text.get_pos() +1))
-    self.text.set_pos(cur_pos)
-   except:
-    appuifw.note(u'Search string not found.', 'info')
-   self.last_find = saved_string
-   statusbar.signal()
-
- def s_ffind(self):
-  """find text within a document"""
-  self.s_find(beginning=True)
-
- def s_rfind(self):
-  """find text within a document"""
-  self.s_find(reverse=True)
-
- def s_replace(self):
-  """find and replace all instances of a given string"""
-  replace=appuifw.multi_query(u'Replace :', u'with : ')
-  if replace != None:
-   statusbar.busy()
-   text=self.text.get()
-   cur_pos=self.text.get_pos()
-   self.text.set(text.replace(replace[0],replace[1]))
-   self.text.set_pos(cur_pos + text[0:cur_pos].count(replace[0])*(len(replace[1])-len(replace[0])))
-   statusbar.signal()
-   appuifw.note(unicode(text.count(replace[0])) + ' instances replaced')
-
- def s_line(self):
-  """move the cursor to a particular line no."""
-  statusbar.add('Find line...')
-  line=appuifw.query(u'Line number:', 'number', 1)
-  statusbar.remove()
-  text=self.text.get().replace(u'\u2029',u'\n')
-  lines=text.count(u'\n')
-  if (line == None):
-   pass
-  elif (line <= lines):
-   statusbar.busy()
-   last=-1
-   for x in range(line-1):
-    last=text.index('\n',(last +1))
-   self.text.set_pos(last +1)
-   statusbar.signal()
-  else:
-   appuifw.note(u'Line does not exist!', 'info')
-
- def h_readme(self):
-  self.f_new()
-  if appuifw.query(u'Open README?', 'query'):
-   try:
-    import README
-    self.text.set(unicode(README.__doc__))
-    self.text.set_pos(1)
-   except:
-    appuifw.note(u'README not found', 'error')
-
- def h_about(self):
-  """display info about application"""
-  null = appuifw.query(unicode(self.__doc__),'query')
-
- def exit(self):
-  """exit application"""
-  if ((self.text.len() > 0) or (os.path.isfile(self.path))):
-   selection=appuifw.popup_menu([\
-    u'Yes',\
-    u'No',\
-   ],\
-    u'Save document?'
-   )
-   if (selection == 0):
-    self.f_save()
-    if os.path.isfile(self.path):
-     self.lock = False
-   if (selection == 1):
-    self.lock = False
-  else:
-   self.lock = False
-
-
-class File_ops(object):
- """this class creates a file browsing interface for saving/opening files.
- it also provides basic useful file operations.
- """
- def __init__(self, initial_dir='\\'):
-  """setup the file browser"""
-  self.menu =\
-   [\
-    (u'[-] Select', self._select),\
-    (u'<- Up', self._ascend),\
-    (u'-> Enter directory', self._descend),\
-    (u'[1] New directory', self._mkdir),\
-    (u'[2] Execute file', self._run),\
-    (u'[ABC] Rename', self._rename),\
-    (u'[C] Delete', self._delete),\
-    (u'Cancel', self._exit),\
-   ]
-  self.dir_iter=dir_iter.Directory_iter(drive_list())
-  if (
-   (os.path.isdir(initial_dir)) and
-   (initial_dir != '\\')
-  ):
-   self.dir_iter.path=initial_dir
-   self.dir_iter.at_root=0
-  self.browse=appuifw.Listbox(self.dir_iter.list_repr(), self._select)
-  self.lock = Ao_lock()
-
- def _state_save(self):
-  """save the application state"""
-  self.body_previous = appuifw.app.body
-  self.menu_previous = appuifw.app.menu
-  self.exit_previous = appuifw.app.exit_key_handler
-
- def _state_restore(self):
-  """restore the application state"""
-  appuifw.app.body = self.body_previous
-  appuifw.app.menu = self.menu_previous
-  appuifw.app.exit_key_handler = self.exit_previous
-
- def open(self, callback=None, new_path=False):
-  """open/save a file
-  'new_path'=True means that a path that does not exist may be returned
-  """
-  statusbar.add(self.dir_iter.path)
-  self._state_save()
-  self.new_path = new_path
-  self.callback = callback
-  self._update()
-
-  # set up UI
-  appuifw.app.body = self.browse
-  appuifw.app.menu = self.menu
-  appuifw.app.exit_key_handler = self._exit
-
-  # key shortcuts
-  self.browse.bind(EKeyRightArrow, self._descend)
-  self.browse.bind(EKeyLeftArrow, self._ascend)
-  self.browse.bind(EKeyBackspace, self._delete)
-  self.browse.bind(EKeyEdit, self._rename)
-  self.browse.bind(EKey1, self._mkdir)
-  self.browse.bind(EKey2, self._run)
-
-  self.lock.wait()
-
- def _run(self):
-  """show the file browser"""
-  appuifw.Content_handler().open_standalone(self.dir_iter.entry(self.browse.current()))
-
- def _descend(self):
-  """enter a directory"""
-  statusbar.busy()
-  selection = self.browse.current()
-  if self.dir_iter.at_root:
-   self.dir_iter.add(selection)
-   self._update()
-  elif os.path.isdir(self.dir_iter.entry(selection)):
-   self.dir_iter.add(selection)
-   self._update()
-  statusbar.signal()
-
- def _update(self):
-  """refresh the directory listing"""
-  statusbar.busy()
-  if len(self.dir_iter.list_repr()) > 0:
-   self.browse.set_list(self.dir_iter.list_repr())
-   statusbar.update(self.dir_iter.path)
-  else:
-   self.dir_iter.pop()
-   appuifw.note(u'Empty directory', 'info')
-  statusbar.signal()
-
- def _select(self):
-  """what to do if an item is selected (i.e. descend directory or open file)"""
-  selection = self.browse.current()
-  if self.dir_iter.at_root:
-   entry = str(self.dir_iter.drives[selection][0])
-  else:
-   entry = self.dir_iter.entry(selection)
-  if os.path.isfile(entry):
-   self._exit(entry)
-  elif (self.new_path and os.path.isdir(entry)):
-   appuifw.note(unicode(entry) + u' selected')
-   filename = appuifw.query(u'Filename', 'text')
-   if filename != None:
-    self._exit(entry + '\\' + str(filename))
-    self.dir_iter.add(selection)
-  else:
-   self._descend()
-
- def _delete(self):
-  """delete selected file/empty folder"""
-  path=self.dir_iter.entry(self.browse.current())
-  if appuifw.query(u'Delete ' + unicode(os.path.basename(path)), 'query'):
-   try:
-    if os.path.isfile(path):
-     os.remove(path)
-     appuifw.note(u'File deleted', 'info')
-    elif os.path.isdir(path):
-     os.rmdir(path)
-     appuifw.note(u'Directory deleted', 'info')
-   except:
-    appuifw.note(u'Unable to delete!', 'error')
-   self._update()
-
- def _rename(self):
-  """rename a file/folder"""
-  path=self.dir_iter.entry(self.browse.current())
-  filename=unicode(os.path.basename(path))
-  if appuifw.query(u'Rename ' + filename + ' ?', 'query'):
-   newname=appuifw.query(u'Rename ' + filename, 'text', filename)
-   if newname != None:
-    try:
-     os.rename(path, os.path.dirname(path) + str(newname))
-     appuifw.note(u'File renamed', 'info')
-    except:
-     appuifw.note(u'Error renaming file!', 'error')
-    self._update()
-
- def _mkdir(self):
-  """create a new directory"""
-  path=self.dir_iter.path
-  if appuifw.query(u'Create directory?', 'query'):
-   newname=appuifw.query(u'Directory name:', 'text', u'new_directory')
-   if newname != None:
-    try:
-     os.mkdir(path + str(newname))
-     appuifw.note(u'Directory \"' + newname + '\" created', 'info')
-    except:
-     appuifw.note(u'Error creating directory!', 'error')
-    self._update()
-
- def _ascend(self):
-  """go up a directory"""
-  statusbar.busy()
-  self.dir_iter.pop()
-  self._update()
-  statusbar.signal()
-
- def _exit(self, path=None):
-  """close the file browser"""
-  self._state_restore()
-  statusbar.remove()
-  self.lock.signal()
-  if path != None:
-   statusbar.busy()
-   self.callback(path)
-   statusbar.signal()
-
-
-class Settings(object):
-
- def __init__(self, initial_dir='\\'):
-  """setup the settings dialog"""
-  self.menu =\
-   [\
-    (u'Modify', self._modify),\
-    (u'Close', self._close),\
-   ]
-  self.lock = Ao_lock()
-
- def load(self, conf):
-  """load all settings"""
-  self.conffile=conf
-  if os.path.exists(self.conffile):
-   f = open(self.conffile, 'r')
-   c = f.read()
-   f.close()
-   self.config=eval(c)
-  else:
-   self._newconfig()
-  try:
-   if not(self.config['version'][0] == VERSION[0] and self.config['version'][1] == VERSION[1]):
-    self._newconfig()
-  except:
-   self._newconfig()
-  self._set_items()
-  self.listbox=appuifw.Listbox(self.items, self._modify)
-
- def _newconfig(self):
-  appuifw.note(u'New version detected, creating new config.', 'info')
-  self.config=\
-   {\
-    'version':VERSION,\
-    'screen':appuifw.app.screen,\
-    'encoding':[DEFAULTENCODING],\
-    'font':[appuifw.Text().font[0]],\
-    'font_colour':(0,0,0),\
-    'history':[],\
-    'history_max':5,\
-    'last_dir':['\\'],\
-    'newline':['unix'],\
-    'linenos':['yes'],\
-    'casesensitive':['no']\
-   }
-  self._saveconfig()
-
- def _state_save(self):
-  """save the application state"""
-  self.body_previous = appuifw.app.body
-  self.menu_previous = appuifw.app.menu
-  self.exit_previous = appuifw.app.exit_key_handler
-
- def _state_restore(self):
-  """restore the application state"""
-  appuifw.app.body = self.body_previous
-  appuifw.app.menu = self.menu_previous
-  appuifw.app.exit_key_handler = self.exit_previous
-
- def edit(self, callback=None):
-  """show the settings editor"""
-  self._state_save()
-  statusbar.add('EasyEdit settings')
-  self.callback = callback
-  self._update()
-  self.oldconfig=self.config
-  appuifw.app.body = self.listbox
-  appuifw.app.menu = self.menu
-  appuifw.app.exit_key_handler = self._close
-  self.listbox.bind(EKeyRightArrow, self._modify)
-  self.listbox.bind(EKeyEdit, self._modify)
-  self.listbox.bind(EKeyYes, self._close)
-  self.lock.wait()
-
- def _set_items(self):
-  """refresh stored list of settings"""
-  self.items=\
-    [\
-     (u'File encoding', unicode(self.config['encoding'][0])),\
-     (u'New-lines', unicode(self.config['newline'][0])),
-     (u'Case-sensitive find', unicode(self.config['casesensitive'][0])),
-     (u'Screen font', unicode(self.config['font'][0])),\
-     (u'Display line number', unicode(self.config['linenos'][0])),\
-     (u'Screen size', unicode(self.config['screen'])),\
-     (u'Max history size', unicode(self.config['history_max'])),
-    ]
-
- def _update(self):
-  """refresh displayed list of settings"""
-  statusbar.busy()
-  self._set_items()
-  self.listbox.set_list(self.items)
-  statusbar.signal()
-
- def _modify(self):
-  """edit a setting"""
-  if self.listbox.current() == 0:
-   self.encoding()
-  elif self.listbox.current() == 1:
-   self.newline()
-  elif self.listbox.current() == 2:
-   self.casesensitive()
-  elif self.listbox.current() == 3:
-   self.font()
-  elif self.listbox.current() == 4:
-   self.linenos()
-  elif self.listbox.current() == 5:
-   self.screen()
-  elif self.listbox.current() == 6:
-   self.history_max()
-  self._update()
-  self._saveconfig()
-
- def _close(self):
-  """close the settings dialog"""
-  self._state_restore()
-  statusbar.remove()
-  self.lock.signal()
-
- def _saveconfig(self):
-  """save the configuration file"""
-  try:
-   f = open(self.conffile, 'w')
-   f.write(repr(self.config))
-   f.close()
-  except:
-   appuifw.note(u'Error saving configuration', 'error')
-
- def history_max(self):
-  """set the maximum history size"""
-  newsize = appuifw.query(u'Max history size:', 'number', self.config['history_max'])
-  if newsize != None:
-   self.config['history_max'] = str(newsize)
-
- def casesensitive(self):
-  selection = appuifw.popup_menu([u'Yes', u'No'], u'Case-sensitive find:')
-  if selection == 0:
-   self.config['casesensitive'][0] = 'yes'
-  if selection == 1:
-   self.config['casesensitive'][0] = 'no'
-
- def linenos(self):
-  selection = appuifw.popup_menu([u'Yes', u'No'], u'Line numbers:')
-  if selection == 0:
-   self.config['linenos'][0] = 'yes'
-  if selection == 1:
-   self.config['linenos'][0] = 'no'
-   statusbar.refresh()
-
- def newline(self):
-  newstyle = appuifw.popup_menu([u'Unix style', u'Windows style'], u'New lines:')
-  if newstyle != None:
-   if newstyle == 0:
-    self.config['newline'][0] = 'unix'
-   if newstyle == 1:
-    self.config['newline'][0] = 'windows'
-
- def screen(self):
-  """change the screen size"""
-  current_screen=self.config['screen']
-  statusbar.add('Select screen size...')
-  self.config['screen']=appuifw.popup_menu([\
-   u'Normal',\
-   u'Large',\
-   u'Fullscreen',\
-  ], u'Screen size:')
-  statusbar.remove()
-  if (self.config['screen'] == 0):
-   appuifw.app.screen='normal'
-   self.config['screen'] = 'normal'
-  elif (self.config['screen'] == 1):
-   appuifw.app.screen='large'
-   self.config['screen'] = 'large'
-  elif (self.config['screen'] == 2):
-   appuifw.app.screen='full'
-   self.config['screen'] = 'full'
-  else:
-   self.config['screen']=current_screen
-
- def font(self):
-  """change the display font"""
-  temp=self.config['font'][0]
-  fonts=appuifw.available_fonts()
-  fonts.sort()
-  statusbar.add('Select font...')
-  self.config['font'][0]=appuifw.selection_list(choices=fonts,search_field=1)
-  statusbar.remove()
-  if self.config['font'][0] != None:
-   self.config['font'][0] = str(fonts[self.config['font'][0]])
-  if (self.config['font'][0] != None):
-   self.callback()
-  else:
-   self.config['font'][0]=temp
-
- def encoding(self):
-  """set the file encoding"""
-  codecs=[]
-  for enc in encodings.aliases.aliases:
-   uni_enc=unicode(encodings.aliases.aliases[enc])
-   if not(uni_enc in codecs):
-    codecs.append(uni_enc)
-  codecs.sort()
-  statusbar.add('Select encoding...')
-  selection=appuifw.selection_list(choices=codecs, search_field=1)
-  statusbar.remove()
-  if selection != None:
-   statusbar.busy()
-   self.config['encoding'][0]=str(codecs[selection])
-   statusbar.signal()
-
-
-class StatusBar:
- """a class to nicely manage the application titlebar
- and use it as a statusbar
- """
-
- def __init__(self, initial=appuifw.app.title):
-  """setup statusbar variables"""
-  self._stack = [unicode(initial)]
-  appuifw.app.title = self._stack[0]
-  self._busy = 0
-
- def refresh(self, prefix='', suffix=''):
-  """refresh the titlebar if not 'busy'"""
-  if self._busy < 1:
-   title = unicode(prefix) + self._stack[-1] + unicode(suffix)
-  else:
-   title = u'   ...busy...'
-  appuifw.app.title = title
-  ao_yield()
-
- def update(self, text):
-  """change the current titlebar text"""
-  if len(self._stack) > 1:
-   self._stack[-1] = (unicode(text))
-   self.refresh()
-  else:
-   self.add(text)
-
- def add(self, text):
-  """add a new item to the statusbar"""
-  self._stack.append(unicode(text))
-  self.refresh()
-
- def remove(self):
-  """return to the previous item in the statusbar"""
-  if len(self._stack) > 1:
-   temp = self._stack.pop()
-  self.refresh()
-
- def busy(self):
-  """set statusbar to 'busy'"""
-  self._busy += 1
-  self.refresh()
-
- def signal(self):
-  """signal end of 'busy' state"""
-  if self._busy > 0:
-   self._busy -= 1
-  self.refresh()
-
-
-# create a statusbar instance
-statusbar = StatusBar('EasyEdit')
 
 # run the editor!
 if __name__ == '__main__':
- editor().run()
-
+	Editor().run()

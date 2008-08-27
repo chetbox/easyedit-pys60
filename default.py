@@ -20,10 +20,10 @@ Released under GPLv2 (See COPYING.txt)
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-import easyedit
+from easyedit import Editor
 from sys import exit
 
 # run the editor
 if __name__ == '__main__':
- easyedit.editor().run()
- exit()
+	Editor().run()
+	exit()
