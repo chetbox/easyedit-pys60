@@ -97,11 +97,15 @@ class Titlebar (object):
 		return self.__title
 	
 	title = property(fget = __getTitle, fset = __setTitle)
+	current_id = None
+	default_id = 'default'
+	__oldtitle = []	# (id, message) elements
 	
 	def __init__(self, id='default', default=app.title):
 		self.__title = unicode(default)
-		self.running = 0
 		self.current_id = id
+		self.default_id = id
+		self.default_title = default
 	
 	def temporary(self, message):
 		"""set title but do not remember it when changed"""
@@ -113,19 +117,30 @@ class Titlebar (object):
 		app.title = self.title
 		ao_yield()
 	
-	def __run(self, override, id, message, function, separator=u' > '):
-		"""Execute a function while displaying/appending a message on the Titlebar"""
-		oldtitle = self.title
-		oldid = self.current_id
-		self.currentid = id
+	def _begin(self, override, id, message, separator=u' > '):
+		oldtitle = (self.current_id, self.title)
+		self.__oldtitle.append(oldtitle)
+		self.current_id = id
 		if override:
 			self.title = unicode(message)
 		else:
-			self.title = oldtitle + separator + unicode(message)
-		retval = function()
-		self.title = oldtitle
-		self.currentid = oldid
+			self.title = oldtitle[1] + separator + unicode(message)
 		ao_yield()
+		
+	def _end(self):
+		if len(self.__oldtitle) > 0:
+			(self.current_id, self.title) = self.__oldtitle.pop()
+		else:
+			self.current_id = self.default_id
+			self.title = self.default_title
+			ao_yield()
+			
+		
+	def __run(self, override, id, message, function, separator=u' > '):
+		"""Execute a function while displaying/appending a message on the Titlebar"""
+		self._begin(override, id, message, separator)
+		retval = function()
+		self._end()
 		return retval
 	
 	def run(self, id, message, function, separator=u' > '):
@@ -151,6 +166,7 @@ class Settings (dict):
 	db = None
 	path = None
 	exit = Ao_lock()
+	titlebar = None
 	
 	def __setitem__(self, key, value):
 		"""equivalent to dict.__setitem__ but flags saveRequired"""
@@ -229,7 +245,7 @@ class Settings (dict):
 		elif DEBUG:
 			print("Settings: update: No list to update!")
 
-	def show_ui(self, groups_requested=[], callback=None, titlebar=u'Edit', menu_items=[]):
+	def show_ui(self, groups_requested=[], callback=None, titlebar=u'Settings', menu_items=[]):
 		"""Create and show a settings editor"""
 		def show():
 			def modify(selected):
@@ -258,7 +274,7 @@ class Settings (dict):
 					else:
 						options = [unicode(option) for option in options]
 						options.sort()
-						selection = selection_list(choices=options, search_field=1)
+						selection = self.titlebar.run(str(description), unicode(description), lambda: selection_list(choices=options, search_field=1))
 					if selection != None:
 						self[id] = options[selection]
 				elif DEBUG:
@@ -467,23 +483,30 @@ class Editor:
 	config = None
 	hasFocus = 0
 	filebrowser = None
-	__document_lock = None
 	text = None
+	running = 0
+	path = None
 	
 	def __newline_fix(self, text):
 		"""Used to replace S60 UI newline characters with normal \n"""
 		return text.replace(u'\u2029',u'\n')
 
 	def __open_document(self, path, read_from_disk=1):
-		"""Open a document by reading from disk, and showing "busy" status.
-		Locks until called again"""
+		"""Open a document by reading from disk, and showing "busy" status."""
 		oldpath = self.path
 		self.path = path
-		if self.__document_lock != None:
-			self.__document_lock.signal()
-		def open_document():
-			error = 0
+		error = 0
+		if path != None:
+			# add to recent list
+			if normpath(path) in self.config[CONF_HISTORY]:
+				self.config[CONF_HISTORY].remove(path)
+			self.config[CONF_HISTORY] = ([normpath(path)] + self.config[CONF_HISTORY])[:self.config[CONF_HISTORY_SIZE]]
+			self.config.save()
+			# show filename in titlebar until a different file is opened
 			if read_from_disk:
+				self.titlebar._end()
+				if path != None:
+					self.titlebar._begin(0, 'document', unicode(basename(path)))
 				# show "busy" message
 				self.titlebar.prepend('document', BUSY_MESSAGE + u' ')
 				try:
@@ -506,18 +529,6 @@ class Editor:
 					# fallback to the previous document if there was an error
 					self.__open_document(oldpath, read_from_disk=0)
 					error = 1
-			if not(error):
-				self.__document_lock = Ao_lock()
-				#self.__document_lock.wait()	# seems to block UI! =(
-				self.__document_lock = None
-		if path != None:
-			# add to recent list
-			if normpath(path) in self.config[CONF_HISTORY]:
-				self.config[CONF_HISTORY].remove(path)
-			self.config[CONF_HISTORY] = ([normpath(path)] + self.config[CONF_HISTORY])[:self.config[CONF_HISTORY_SIZE]]
-			self.config.save()
-			# show filename in titlebar until a different file is opened
-			self.titlebar.run('document', unicode(basename(normpath(path))), open_document)
 
 	def run(self):
 		"""Start EasyEdit"""
@@ -618,7 +629,7 @@ class Editor:
 			else:
 				note(u'No recent documents', 'info')
 		def f_save(force=0):
-			"""save the current file - force skips exist check"""
+			"""save the current file - force argument skips exist check"""
 			if force or self.exists():
 				# show "busy" message
 				self.titlebar.prepend('document', BUSY_MESSAGE + u' ')
@@ -715,7 +726,7 @@ class Editor:
 				find_text = self.config[CONF_FIND_TEXT]
 				if self.config[CONF_FIND_CASE_SENSITIVE] == 'no':
 					current_text = current_text.lower()
-					find_text = find_text.lower()
+					find_text = find_text.lower() # makes everything lowercase!!
 				self.titlebar.prepend('settings', BUSY_MESSAGE)
 				new_text = current_text.replace(find_text, self.config[CONF_REPLACE_TEXT])
 				self.text.set(new_text)
@@ -728,7 +739,7 @@ class Editor:
 			self.config.show_ui(groups_requested=[CONF_GROUP_FIND, CONF_GROUP_REPLACE], titlebar=u'Replace', menu_items=[(u'Replace all', replace)])
 		# read settings
 		self.titlebar = Titlebar('document', u'EasyEdit')
-		self.config = Settings(CONF_DB, CONFFILE, self.titlebar)
+		self.config = Settings(CONF_DB, CONFFILE, Titlebar('settings', u'EasyEdit'))
 		self.hasFocus = 1
 		# save current state
 		old_title = app.title
@@ -755,26 +766,24 @@ class Editor:
 			)),
 			(u'Search', (
 				(u'Find', s_find),
-		#		(u'Find next', s_find_next),
-		#		(u'Find previous', s_find_prev),
 				(u'Replace', s_replace),
 				(u'Go to line', s_go_to_line),
 			)),
 			(u'Settings', lambda : self.config.show_ui(groups_requested=[CONF_GROUP_MAIN], callback=self.refresh, menu_items=[(u'Return to editor', self.config.exit.signal)])),	# show all CONF_GROUP_MAIN settings
 			(u'Help', (
-		#		(u'Open README', self.h_readme),
+		#		(u'README', self.h_readme),
 				(u'About EasyEdit', lambda : query(unicode(self.__doc__), 'query')),
 			)),
 			(u'Exit', exitHandler),
 			]
-		# start editing a new document
-		f_new()
 		# display editor
 		app.body = self.text
-		ao_yield()
 		app.exit_key_handler = exitHandler
 		# set the 'dial' key to save document
 		self.text.bind(EKeyYes, f_save)
+		# start editing a new document
+		f_new()
+		ao_yield()
 		quit_app = None
 		while quit_app == None:
 			self.running = 1
@@ -792,9 +801,6 @@ class Editor:
 			# intent to close application has now been expressed
 			quit_app = save_query()
 		# application should now be closing
-		# unlock any pending locks
-		if self.__document_lock != None:
-			self.__document_lock.signal()
 		# restore original state
 		app.title = old_title
 		app.screen = old_screen
