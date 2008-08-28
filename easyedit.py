@@ -21,7 +21,7 @@ Released under GPLv2 (See COPYING.txt)
 
 
 # Settings
-VERSION=(2, 0, 8)
+VERSION=(2, 1, 0)
 DEBUG = 0
 CONFFILE='C:\\SYSTEM\\Data\\EasyEdit\\settings.conf'
 BUSY_MESSAGE = u'[busy]'
@@ -98,15 +98,11 @@ class Titlebar (object):
 		return self.__title
 	
 	title = property(fget = __getTitle, fset = __setTitle)
-	current_id = None
-	default_id = 'default'
 	__oldtitle = []	# (id, message) elements
 	
 	def __init__(self, id='default', default=app.title):
 		self.__title = unicode(default)
 		self.current_id = id
-		self.default_id = id
-		self.default_title = default
 	
 	def temporary(self, message):
 		"""set title but do not remember it when changed"""
@@ -131,11 +127,7 @@ class Titlebar (object):
 	def _end(self):
 		if len(self.__oldtitle) > 0:
 			(self.current_id, self.title) = self.__oldtitle.pop()
-		else:
-			self.current_id = self.default_id
-			self.title = self.default_title
-			ao_yield()
-			
+		ao_yield()
 		
 	def __run(self, override, id, message, function, separator=u' > '):
 		"""Execute a function while displaying/appending a message on the Titlebar"""
@@ -497,7 +489,10 @@ class Editor:
 		oldpath = self.path
 		self.path = path
 		error = 0
+		self.titlebar._end()
 		if path != None:
+			self.titlebar._begin(0, 'document', unicode(basename(path)))
+			self.__save_last_dir(path)
 			# add to recent list
 			if normpath(path) in self.config[CONF_HISTORY]:
 				self.config[CONF_HISTORY].remove(path)
@@ -505,9 +500,6 @@ class Editor:
 			self.config.save()
 			# show filename in titlebar until a different file is opened
 			if read_from_disk:
-				self.titlebar._end()
-				if path != None:
-					self.titlebar._begin(0, 'document', unicode(basename(path)))
 				# show "busy" message
 				self.titlebar.prepend('document', BUSY_MESSAGE + u' ')
 				try:
@@ -551,7 +543,7 @@ class Editor:
 			"""check if file needs saving and prompt user if necessary - returns user reponse"""
 			save = 0
 			save_required = 1
-			current_text = self.text.get()
+			current_text = self.__newline_fix(self.text.get())
 			if self.exists():
 				# read file and compare to current
 				f = open(self.path, 'r')
@@ -585,7 +577,6 @@ class Editor:
 			path = self.filebrowser.show_ui()
 			# show "save?" dialog if necesary and open document
 			if path != None:
-				self.__save_last_dir(path)
 				if save_query() != None:
 					# open the document
 					self.__open_document(path)
@@ -670,17 +661,17 @@ class Editor:
 					suggested_filename = join(containing_dir, current_filename)
 				new_filename = query(unicode(new_file_location), 'text', unicode(suggested_filename))
 				if new_filename != None:
-					self.path = join(new_file_location, new_filename)
-					self.__save_last_dir(self.path)
+					new_path = join(new_file_location, new_filename)
 					# check if file already exists and ask if it should be replaced
 					save_possible = 0
-					if isfile(self.path):
+					if isfile(new_path):
 						save_possible = query(u'Overwite file?', 'query')
-					elif isdir(self.path):
+					elif isdir(new_path):
 						note(u'Not saved: A directory exists with that name', 'info')
 					else:
 						save_possible = 1
 					if save_possible:
+						self.__open_document(new_path, read_from_disk=0)
 						f_save(force=1)	# force prevents another call to f_save_as
 		def s_go_to_line():
 			"""move cursor to beginning of specified line number"""
@@ -722,7 +713,7 @@ class Editor:
 			"""replace all matching strings in the document"""
 			def replace():
 				def strreplace(text, old, new, ignore_case=1, regexp=0, count=0):
-					"""Behaves like string.replace(), but does can so in a case-insensitive fashion """
+					"""Behaves like string.replace(), but does can so in a case-insensitive fashion or with regular expressions"""
 					if not(regexp):
 						old = re.escape(old)
 					pattern = re.compile(old, ignore_case and re.IGNORECASE)
@@ -731,7 +722,7 @@ class Editor:
 					return new_text
 				self.config.save()
 				cursor_position = self.text.get_pos()
-				current_text = self.text.get()
+				current_text = self.__newline_fix(self.text.get())
 				find_text = self.config[CONF_FIND_TEXT]
 				replace_text = self.config[CONF_REPLACE_TEXT]
 				self.titlebar.prepend('settings', BUSY_MESSAGE)
