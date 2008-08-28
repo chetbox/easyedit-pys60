@@ -34,6 +34,7 @@ from os.path import exists, isfile, isdir, join, basename, dirname, normpath
 from sys import getdefaultencoding, exc_info
 from encodings import aliases
 from graphics import FONT_ANTIALIAS
+import re
 
 # main configuration keys
 CONF_VERSION			= 'version'
@@ -490,7 +491,7 @@ class Editor:
 	def __newline_fix(self, text):
 		"""Used to replace S60 UI newline characters with normal \n"""
 		return text.replace(u'\u2029',u'\n')
-
+	
 	def __open_document(self, path, read_from_disk=1):
 		"""Open a document by reading from disk, and showing "busy" status."""
 		oldpath = self.path
@@ -720,19 +721,23 @@ class Editor:
 		def s_replace():
 			"""replace all matching strings in the document"""
 			def replace():
+				def strreplace(text, old, new, ignore_case=1, regexp=0, count=0):
+					"""Behaves like string.replace(), but does can so in a case-insensitive fashion """
+					if not(regexp):
+						old = re.escape(old)
+					pattern = re.compile(old, ignore_case and re.IGNORECASE)
+					(new_text, subs) = re.subn(pattern, new, text, count)
+					note(unicode(subs) + " matches replaced", 'info')
+					return new_text
 				self.config.save()
 				cursor_position = self.text.get_pos()
 				current_text = self.text.get()
 				find_text = self.config[CONF_FIND_TEXT]
-				if self.config[CONF_FIND_CASE_SENSITIVE] == 'no':
-					current_text = current_text.lower()
-					find_text = find_text.lower() # makes everything lowercase!!
+				replace_text = self.config[CONF_REPLACE_TEXT]
 				self.titlebar.prepend('settings', BUSY_MESSAGE)
-				new_text = current_text.replace(find_text, self.config[CONF_REPLACE_TEXT])
+				new_text = strreplace(current_text, find_text, replace_text, self.config[CONF_FIND_CASE_SENSITIVE] == 'no', self.config[CONF_FIND_REGEXP] == 'yes')
 				self.text.set(new_text)
-				note(unicode(current_text.count(find_text)) + " matches replaces", 'info')
-				if cursor_position > len(new_text):
-					cursor_position = len(new_text)
+				cursor_position = cursor_position + current_text[0:cursor_position].count(find_text) * (len(replace_text) - len(find_text))
 				self.text.set_pos(cursor_position)
 				self.config.exit.signal()
 				self.titlebar.refresh()
