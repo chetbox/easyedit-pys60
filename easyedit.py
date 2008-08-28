@@ -622,7 +622,7 @@ class Editor:
 				note(u'No recent documents', 'info')
 		def f_save(force=0):
 			"""save the current file - force argument skips exist check"""
-			if force or self.exists():
+			if force or self.path != None:
 				# show "busy" message
 				self.titlebar.prepend('document', BUSY_MESSAGE + u' ')
 				try:
