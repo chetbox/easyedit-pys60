@@ -342,12 +342,10 @@ class Filebrowser (Directory_iter):
 			
 	abs_path = property(fget=__getSelection)
 		
-	def refresh_ui(self, current=None):
+	def refresh_ui(self, current=0):
 		"""refresh the current file list
 		current sets the current selection"""
 		dir_listing = self.list_repr()
-		if current == None:
-			current = self.listbox.current()
 		if len(dir_listing) > 0:
 			self.titlebar.temporary(self.path)
 			self.listbox.set_list(dir_listing, current)
@@ -355,7 +353,7 @@ class Filebrowser (Directory_iter):
 		else:
 			note(u'Empty directory', 'info')
 			self.pop()
-			self.refresh_ui(current=0)
+			self.refresh_ui(self.listbox.current())
 	
 	def show_ui(self, allow_directory=0):
 		"""show the file browser - returns the path selected
@@ -393,13 +391,13 @@ class Filebrowser (Directory_iter):
 						note(u'File renamed', 'info')
 					except:
 						note(u'Error renaming file', 'error')
-					self.refresh_ui()
+					self.refresh_ui(self.listbox.current())
 			def create_directory():
 				"""create a new directory at the current location"""
 				if self.at_root:
 					note(u'Cannot create directory here', 'info')
 				else:
-					dir_name = query(u'Directory name', 'text', u'New directory')
+					dir_name = query(u'New dir: ' + unicode(self.path) + u'\\', 'text', u'New directory')
 					if dir_name != None:
 						try:
 							mkdir(join(self.path, str(dir_name)))
