@@ -57,12 +57,15 @@ CONF_FIND_TEXT			= 'search text'
 CONF_FIND_DIRECTION		= 'search direction'
 CONF_FIND_REGEXP		= 'regular expression'
 CONF_REPLACE_TEXT		= 'replace text'
+CONF_REGEXP_MULTILINE		= 'multi line'
+CONF_REGEXP_DOTALL		= 'dot all'
 
 # config groups keys
 CONF_GROUP_MAIN			= 'main'
 CONF_GROUP_FIND			= 'find'
 CONF_GROUP_FIND_DIRECTION	= 'find direction'
 CONF_GROUP_REPLACE		= 'replace'
+CONF_GROUP_REGEXP		= 'regular expressions'
 
 CONF_DB = [
 	# id				group				description		default			min. s60_version	options (None => no dialog)			(a,'b') => a.b = option
@@ -84,6 +87,8 @@ CONF_DB = [
 	(CONF_FIND_DIRECTION,		CONF_GROUP_FIND_DIRECTION,	'Search direction',	'all',			1,			['all', 'next', 'previous'],			None				),
 	(CONF_FIND_CASE_SENSITIVE,	CONF_GROUP_FIND,		'Case sensitive find',	'no',			1,			['yes', 'no'],					None				),
 	(CONF_FIND_REGEXP,		CONF_GROUP_FIND,		'Regular expression',	'no',			1,			['yes', 'no'],					None				),
+	(CONF_REGEXP_MULTILINE,		CONF_GROUP_REGEXP,		'^ and $ match lines',	'no',			1,			['yes', 'no'],					None				),
+	(CONF_REGEXP_DOTALL,		CONF_GROUP_REGEXP,		'. matches all',	'no',			1,			['yes', 'no'],					None				),
 ]
 
 class Titlebar (object):
@@ -215,12 +220,12 @@ class Settings (dict):
 		elif DEBUG:
 			print("Config not saved")
 	
-	def __currentSettingsList(self, groups_requested=[]):
+	def __currentSettingsList(self, group_filter=(lambda group: 0)):
 		return [(id,group,description,default,s60,options,action)
 			for (id,group,description,default,s60,options,action) in self.db
 				if s60_version_info[0] >= s60
 				and options != None		# filter out items with no user options
-				and group in groups_requested	# filter by groups_requested list
+				and group_filter(group)		# filter by group_filter function
 		]
 
 	def refresh_ui(self, settingsList=None):
@@ -238,14 +243,14 @@ class Settings (dict):
 		elif DEBUG:
 			print("Settings: update: No list to update!")
 
-	def show_ui(self, groups_requested=[], callback=None, titlebar=u'Settings', menu_items=[]):
+	def show_ui(self, group_filter=(lambda group: 0), callback=None, titlebar=u'Settings', menu_items=[]):
 		"""Create and show a settings editor"""
 		def show():
 			def modify(selected):
 				"""edit a setting"""
 				(id, description, options, action, supported_s60_version) = [(id, description, options, action, s60)
 					for (id,group,description,default,s60,options,action) 
-					in self.__currentSettingsList(groups_requested)
+					in self.__currentSettingsList(group_filter)
 					][selected]
 				# display options
 				selection = None
@@ -272,7 +277,7 @@ class Settings (dict):
 						self[id] = options[selection]
 				elif DEBUG:
 					print("Settings : Unsupported type " + str(options.__class__))
-				self.refresh_ui(self.__currentSettingsList(groups_requested))
+				self.refresh_ui(self.__currentSettingsList(group_filter))
 				self.saveRequired = 1
 				# run any immediate action if one has been defined
 				if action != None and s60_version_info[0] >= supported_s60_version:
@@ -281,7 +286,7 @@ class Settings (dict):
 					except:
 						note(u'Error setting ' + unicode(description), 'error')
 			self.settings_list = Listbox([(u'dummy',u'item')], lambda: modify(self.settings_list.current()))
-			self.refresh_ui(self.__currentSettingsList(groups_requested))
+			self.refresh_ui(self.__currentSettingsList(group_filter))
 			# save previous application state
 			previous_body = app.body
 			previous_menu = app.menu
@@ -706,15 +711,15 @@ class Editor:
 					self.config.exit.signal()
 				else:
 					note(u'Search text not found', 'info')
-			self.config.show_ui(groups_requested=[CONF_GROUP_FIND, CONF_GROUP_FIND_DIRECTION], titlebar=u'Find', menu_items=[(u'Search',find)])
+			self.config.show_ui(group_filter=(lambda group: group in [CONF_GROUP_FIND, CONF_GROUP_FIND_DIRECTION] or (group == CONF_GROUP_REGEXP and self.config[CONF_FIND_REGEXP] == 'yes')), titlebar=u'Find', menu_items=[(u'Search',find)])
 		def s_replace():
 			"""replace all matching strings in the document"""
 			def replace():
-				def strreplace(text, old, new, ignore_case=1, regexp=0, count=0):
+				def strreplace(text, old, new, count=0, ignore_case=(self.config[CONF_FIND_CASE_SENSITIVE] == 'no'), regexp=(self.config[CONF_FIND_REGEXP] == 'yes'), multiline=(self.config[CONF_REGEXP_MULTILINE] == 'yes'), dotall=(self.config[CONF_REGEXP_DOTALL] == 'yes')):
 					"""Behaves like string.replace(), but does can so in a case-insensitive fashion or with regular expressions"""
 					if not(regexp):
 						old = re.escape(old)
-					pattern = re.compile(old, ignore_case and re.IGNORECASE)
+					pattern = re.compile(old, re.UNICODE | (ignore_case and re.IGNORECASE) | (multiline and re.MULTILINE) | (dotall and re.DOTALL))
 					(new_text, subs) = re.subn(pattern, new, text, count)
 					note(unicode(subs) + " matches replaced", 'info')
 					return new_text
@@ -724,13 +729,13 @@ class Editor:
 				find_text = self.config[CONF_FIND_TEXT]
 				replace_text = self.config[CONF_REPLACE_TEXT]
 				self.titlebar.prepend('settings', BUSY_MESSAGE)
-				new_text = strreplace(current_text, find_text, replace_text, self.config[CONF_FIND_CASE_SENSITIVE] == 'no', self.config[CONF_FIND_REGEXP] == 'yes')
+				new_text = strreplace(current_text, find_text, replace_text)
 				self.text.set(new_text)
 				cursor_position = cursor_position + current_text[0:cursor_position].count(find_text) * (len(replace_text) - len(find_text))
 				self.text.set_pos(cursor_position)
 				self.config.exit.signal()
 				self.titlebar.refresh()
-			self.config.show_ui(groups_requested=[CONF_GROUP_FIND, CONF_GROUP_REPLACE], titlebar=u'Replace', menu_items=[(u'Replace all', replace)])
+			self.config.show_ui(group_filter=(lambda group: group in [CONF_GROUP_FIND, CONF_GROUP_REPLACE] or (group == CONF_GROUP_REGEXP and self.config[CONF_FIND_REGEXP] == 'yes')), titlebar=u'Replace', menu_items=[(u'Replace all', replace)])
 		# read settings
 		self.titlebar = Titlebar('document', u'EasyEdit')
 		self.config = Settings(CONF_DB, CONFFILE, Titlebar('settings', u'EasyEdit'))
@@ -763,7 +768,7 @@ class Editor:
 				(u'Replace', s_replace),
 				(u'Go to line', s_go_to_line),
 			)),
-			(u'Settings', lambda : self.config.show_ui(groups_requested=[CONF_GROUP_MAIN], callback=self.refresh, menu_items=[(u'Return to editor', self.config.exit.signal)])),	# show all CONF_GROUP_MAIN settings
+			(u'Settings', lambda : self.config.show_ui(group_filter=(lambda group: group == CONF_GROUP_MAIN), callback=self.refresh, menu_items=[(u'Return to editor', self.config.exit.signal)])),	# show all CONF_GROUP_MAIN settings
 			(u'Help', (
 		#		(u'README', self.h_readme),
 				(u'About EasyEdit', lambda : query(unicode(self.__doc__), 'query')),
