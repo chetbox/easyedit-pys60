@@ -80,7 +80,7 @@ CONF_DB = [
 	(CONF_LAST_DIR,			CONF_GROUP_MAIN,		'Last used directory',	'\\',			1,			None,						None				),
 	(CONF_HISTORY,			CONF_GROUP_MAIN,		'History',		[],			1,			None,						None				),
 	(CONF_HISTORY_SIZE,		CONF_GROUP_MAIN,		'Max history size',	8,			1,			int,						None				),
-	(CONF_SCREEN,			CONF_GROUP_MAIN,		'Screen Size',		'normal',		1,			['large', 'normal', 'full'],			(app, 'screen')			),
+	(CONF_SCREEN,			CONF_GROUP_MAIN,		'Screen Size',		'normal',		1,			['normal', 'large', 'full'],			(app, 'screen')			),
 	(CONF_ORIENTATION,		CONF_GROUP_MAIN,		'Screen orientation',	'automatic',		3,			['automatic', 'portrait', 'landscape'],		(app, 'orientation')		),
 	(CONF_FIND_TEXT,		CONF_GROUP_FIND,		'Search text',		'',			1,			unicode,					None				),
 	(CONF_REPLACE_TEXT,		CONF_GROUP_REPLACE,		'Replace text',		'',			1,			unicode,					None				),
@@ -578,10 +578,9 @@ class Editor:
 			if self.filebrowser == None:
 				self.filebrowser = Filebrowser(self.config[CONF_LAST_DIR], self.titlebar)
 			path = self.filebrowser.show_ui()
-			# show "save?" dialog if necesary and open document
+			# check if file needs saving, do not open document if file not saved
 			if path != None:
 				if save_query() != None:
-					# open the document
 					self.__open_document(path)
 		def f_open_recent():
 			"""select a file to open from the recent document list"""
@@ -589,7 +588,9 @@ class Editor:
 			listbox = None
 			def select():
 				lock.signal()
-				self.__open_document(self.config[CONF_HISTORY][listbox.current()])
+				# check if file needs saving, do not open document if file not saved
+				if save_query() != None:
+					self.__open_document(self.config[CONF_HISTORY][listbox.current()])
 			def current_list():
 				return [(basename((unicode(file))), dirname(unicode(file))) for file in self.config[CONF_HISTORY]]
 			def remove_recent():
