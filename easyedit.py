@@ -694,24 +694,30 @@ class Editor:
 		def s_find():
 			"""find a string in the document"""
 			def find():
+				def findindex(text, searchstring, searchall=(self.config[CONF_FIND_DIRECTION] == 'all'), reverse=(self.config[CONF_FIND_DIRECTION] == 'previous'), ignore_case=(self.config[CONF_FIND_CASE_SENSITIVE] == 'no'), regexp=(self.config[CONF_FIND_REGEXP] == 'yes'), multiline=(self.config[CONF_REGEXP_MULTILINE] == 'yes'), dotall=(self.config[CONF_REGEXP_DOTALL] == 'yes')):
+					"""Behaves like string.replace(), but does can so in a case-insensitive fashion or with regular expressions"""
+					current_position = self.text.get_pos()
+					start_position = 0
+					# TODO : searching backwards/previous not implemented
+					if not(searchall):
+						start_position = current_position
+					if not(regexp):
+						searchstring = re.escape(searchstring)
+					try:
+						pattern = re.compile(searchstring, re.UNICODE | (ignore_case and re.IGNORECASE) | (multiline and re.MULTILINE) | (dotall and re.DOTALL))
+					except:
+						note(u'Invalid expression', 'error')
+						return current_position
+					match = pattern.search(text, start_position)
+					if match == None:
+						note(u'Search text not found', 'info')
+						return current_position
+					return match.start()
 				self.config.save()
-				cursor_position = self.text.get_pos()
 				text = self.__newline_fix(self.text.get())
 				search_text = self.config[CONF_FIND_TEXT]
-				if self.config[CONF_FIND_CASE_SENSITIVE] == 'no':
-					text = text.lower()
-					search_text = search_text.lower()
-				if self.config[CONF_FIND_DIRECTION] == 'next':
-					cursor_position = text.find(search_text, cursor_position + 1)
-				elif self.config[CONF_FIND_DIRECTION] == 'previous':
-					cursor_position = text.rfind(search_text, 0, cursor_position - 1)
-				else:	# search all
-					cursor_position = text.find(search_text)
-				if cursor_position != -1:
-					self.text.set_pos(cursor_position)
-					self.config.exit.signal()
-				else:
-					note(u'Search text not found', 'info')
+				self.text.set_pos(findindex(text, search_text))
+				self.config.exit.signal()
 			self.config.show_ui(group_filter=(lambda group: group in [CONF_GROUP_FIND, CONF_GROUP_FIND_DIRECTION] or (group == CONF_GROUP_REGEXP and self.config[CONF_FIND_REGEXP] == 'yes')), titlebar=u'Find', menu_items=[(u'Search',find)])
 		def s_replace():
 			"""replace all matching strings in the document"""
@@ -720,8 +726,12 @@ class Editor:
 					"""Behaves like string.replace(), but does can so in a case-insensitive fashion or with regular expressions"""
 					if not(regexp):
 						old = re.escape(old)
-					pattern = re.compile(old, re.UNICODE | (ignore_case and re.IGNORECASE) | (multiline and re.MULTILINE) | (dotall and re.DOTALL))
-					(new_text, subs) = re.subn(pattern, new, text, count)
+					try:
+						pattern = re.compile(old, re.UNICODE | (ignore_case and re.IGNORECASE) | (multiline and re.MULTILINE) | (dotall and re.DOTALL))
+					except:
+						note(u'Invalid expression', 'error')
+						return None
+					(new_text, subs) = pattern.subn(new, text, count)
 					note(unicode(subs) + " matches replaced", 'info')
 					return new_text
 				self.config.save()
@@ -731,9 +741,10 @@ class Editor:
 				replace_text = self.config[CONF_REPLACE_TEXT]
 				self.titlebar.prepend('settings', BUSY_MESSAGE)
 				new_text = strreplace(current_text, find_text, replace_text)
-				self.text.set(new_text)
-				cursor_position = cursor_position + current_text[0:cursor_position].count(find_text) * (len(replace_text) - len(find_text))
-				self.text.set_pos(cursor_position)
+				if new_text != None:
+					self.text.set(new_text)
+					cursor_position = cursor_position + current_text[0:cursor_position].count(find_text) * (len(replace_text) - len(find_text))
+					self.text.set_pos(cursor_position)
 				self.config.exit.signal()
 				self.titlebar.refresh()
 			self.config.show_ui(group_filter=(lambda group: group in [CONF_GROUP_FIND, CONF_GROUP_REPLACE] or (group == CONF_GROUP_REGEXP and self.config[CONF_FIND_REGEXP] == 'yes')), titlebar=u'Replace', menu_items=[(u'Replace all', replace)])
