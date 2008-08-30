@@ -1,6 +1,6 @@
 """A simple text editor for s60
 
-Copyright Chetan Padia ( chetbox [at] gmail [dot] com )
+Copyright Chetan Padia (chetbox@users.noreply.github.com)
 Released under GPLv2 (See COPYING.txt)
 """
 
@@ -21,7 +21,7 @@ Released under GPLv2 (See COPYING.txt)
 
 
 # Settings
-VERSION=(2, 1, 0)
+VERSION=(2, 0, 0)
 DEBUG = 0
 CONFFILE='C:\\SYSTEM\\Data\\EasyEdit\\settings.conf'
 BUSY_MESSAGE = u'[busy]'
@@ -351,6 +351,13 @@ class Filebrowser (Directory_iter):
 		"""refresh the current file list
 		current sets the current selection"""
 		dir_listing = self.list_repr()
+		# if passed a folder name, find its index
+		if current.__class__ == str:
+			try:
+				current = [file for (file, stats) in dir_listing].index(u'[' + unicode(current) + u']')
+			except:
+				# if not found, move focus to beginning of list
+				current = 0
 		if len(dir_listing) > 0:
 			self.titlebar.temporary(self.path)
 			self.listbox.set_list(dir_listing, current)
@@ -375,8 +382,9 @@ class Filebrowser (Directory_iter):
 			def ascend():
 				"""go up the directory hierarchy"""
 				if self.path != '\\':
+					current_folder = basename(self.path)
 					self.pop()
-					self.refresh_ui()
+					self.refresh_ui(current_folder)
 			def select():
 				"""select the current file or open the directory"""
 				if allow_directory or isfile(self.abs_path):

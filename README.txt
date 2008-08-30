@@ -3,7 +3,7 @@ EasyEdit README
    v. 1.44
 
 
-Copyright Chetan Padia ( chetbox [at] gmail [dot] com )
+Copyright Chetan Padia (chetbox@users.noreply.github.com)
 Released under GPLv2 (See COPYING.txt)
 
 
