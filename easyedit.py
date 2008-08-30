@@ -707,7 +707,7 @@ class Editor:
 						pattern = re.compile(searchstring, re.UNICODE | (ignore_case and re.IGNORECASE) | (multiline and re.MULTILINE) | (dotall and re.DOTALL))
 					except:
 						note(u'Invalid expression', 'error')
-						return current_position
+						return None
 					match = pattern.search(text, start_position)
 					if match == None:
 						note(u'Search text not found', 'info')
@@ -716,8 +716,10 @@ class Editor:
 				self.config.save()
 				text = self.__newline_fix(self.text.get())
 				search_text = self.config[CONF_FIND_TEXT]
-				self.text.set_pos(findindex(text, search_text))
-				self.config.exit.signal()
+				new_pos = findindex(text, search_text)
+				if new_pos != None:
+					self.text.set_pos(new_pos)
+					self.config.exit.signal()
 			self.config.show_ui(group_filter=(lambda group: group in [CONF_GROUP_FIND, CONF_GROUP_FIND_DIRECTION] or (group == CONF_GROUP_REGEXP and self.config[CONF_FIND_REGEXP] == 'yes')), titlebar=u'Find', menu_items=[(u'Search',find)])
 		def s_replace():
 			"""replace all matching strings in the document"""
@@ -745,7 +747,7 @@ class Editor:
 					self.text.set(new_text)
 					cursor_position = cursor_position + current_text[0:cursor_position].count(find_text) * (len(replace_text) - len(find_text))
 					self.text.set_pos(cursor_position)
-				self.config.exit.signal()
+					self.config.exit.signal()
 				self.titlebar.refresh()
 			self.config.show_ui(group_filter=(lambda group: group in [CONF_GROUP_FIND, CONF_GROUP_REPLACE] or (group == CONF_GROUP_REGEXP and self.config[CONF_FIND_REGEXP] == 'yes')), titlebar=u'Replace', menu_items=[(u'Replace all', replace)])
 		# read settings
