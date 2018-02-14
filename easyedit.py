@@ -1,7 +1,7 @@
 """A simple text editor for s60
 
 Copyright Chetan Padia (chetbox@users.noreply.github.com)
-Released under GPLv2 (See COPYING.txt)
+Released under GPLv3 (See COPYING.txt)
 """
 
 # This file is part of EasyEdit.
